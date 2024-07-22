@@ -1,0 +1,28 @@
+MainPanel {
+    layout: horizontal;
+    background: gray;
+    height: 100%;
+}
+
+MessageList {
+    width: 50%;
+    height: 100%;
+    background: blue;
+}
+
+MessagePane {
+    background: green;
+    height: 100%;
+}
+
+ButtonBar {
+    background: cyan;
+    width: 100%;
+    layout: horizontal;
+    align-horizontal: center;
+    dock: bottom;
+}
+
+.button {
+    margin: 1;
+}
