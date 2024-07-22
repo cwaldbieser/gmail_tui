@@ -5,6 +5,10 @@ name = "pypi"
 
 [packages]
 textual = "*"
+google-api-python-client = "*"
+google-auth-oauthlib = "*"
+google-auth-httplib2 = "*"
+python-dateutil = "*"
 
 [dev-packages]
 textual-dev = "*"
