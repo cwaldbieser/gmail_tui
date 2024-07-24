@@ -8,22 +8,23 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer
 from textual.message import Message
-from textual.widgets import Button, Footer, Header, Static
+from textual.widgets import Button, Footer, Header, Static, Label
 
 from gmailtuilib.gmailapi import get_gmail_credentials, list_messages
 
 
 class MessageItem(Static):
-    def __init__(self, date_str, sender, subject):
+    def __init__(self, thread_id, date_str, sender, subject, **kwds):
+        self.thread_id = thread_id
         self.date_str = date_str
         self.sender = sender
         self.subject = subject
-        super().__init__()
+        super().__init__(**kwds)
 
     def compose(self):
-        yield Static(self.date_str)
-        yield Static(self.sender)
-        yield Static(self.subject)
+        yield Label(f"Date:    {self.date_str}")
+        yield Label(f"From:    {self.sender}")
+        yield Label(f"Subject: {self.subject}")
 
 
 class Messages(ScrollableContainer):
@@ -38,7 +39,7 @@ class Messages(ScrollableContainer):
 class ButtonBar(Static):
     def compose(self):
         yield Button("<", disabled=True, id="btn-backwards", classes="button")
-        yield Button(">", disabled=True, id="btn-forwards", classes="button")
+        yield Button(">", disabled=False, id="btn-forwards", classes="button")
 
 
 class MessageList(Static):
@@ -47,21 +48,17 @@ class MessageList(Static):
         yield ButtonBar()
 
 
-class MessagePane(ScrollableContainer):
-    pass
-
-
 class MainPanel(Static):
     def compose(self):
         yield MessageList()
-        yield MessagePane()
 
 
 class GMailApp(App):
     """A Textual app to manage stopwatches."""
 
     CSS_PATH = "gmail_app.tcss"
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode")]
+    BINDINGS = [("d", "toggle_dark", "Toggle dark mode"),
+                ("x", "test", "Debbugging")]
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -84,21 +81,33 @@ class GMailApp(App):
         messages_widget = self.query_one("#messages")
         credentials = get_gmail_credentials(self.config)
         print("Got credentials.")
-        messages, next_page_token = list_messages(credentials)
+        message_threads = list_messages(credentials)
         print("Got messages.")
         messages_widget.remove_children()
-        for item in messages:
-            print(item)
+        for n, (thread_id, threads) in enumerate(message_threads.items()):
+            if n % 2 == 0:
+                item_class = "item-even"
+            else:
+                item_class = "item-odd"
+            item = threads[0]
             dt = parse_date(item["Date"])
             date_str = dt.isoformat()
             sender = item["From"]
             subject = item["Subject"]
-            widget = MessageItem(date_str, sender, subject)
+            widget = MessageItem(thread_id, date_str, sender, subject, classes=item_class)
+            self.message_thread_cache = message_threads
             self.call_from_thread(messages_widget.mount, widget)
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         self.dark = not self.dark
+
+    def action_test(self):
+        button = self.query_one("#btn-forwards")
+        button.focus()
+
+    def on_button_pressed(self, event: Button.Pressed):
+        print(event)
 
 
 if __name__ == "__main__":

@@ -5,17 +5,9 @@ MainPanel {
 }
 
 MessageList {
-    width: 50%;
+    width: 100%;
     height: 100%;
-    background: blue;
-    border: dashed white;
-}
-
-MessagePane {
-    background: green;
-    border: dashed white;
-    height: 100%;
-    width: 50%;
+    background: gray;
 }
 
 ButtonBar {
@@ -28,4 +20,14 @@ ButtonBar {
 
 .button {
     margin: 1;
+}
+
+.item-even {
+    background: blue;
+    color: white;
+}
+
+.item-odd {
+    background: cornflowerblue;
+    color: white;
 }
