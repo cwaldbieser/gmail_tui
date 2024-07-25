@@ -58,3 +58,36 @@ sql_fetch_msgs_for_label = """\
     AND threads2.thread_num > ?
     ORDER BY threads2.thread_num, messages.message_id DESC
     """
+
+sql_ddl_messages = """\
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY,
+        message_id TEXT,
+        thread_id TEXT,
+        b64_message TEXT,
+        unread INTEGER
+    )
+    """
+sql_ddl_messages_idx0 = """\
+    create unique index if not exists idx0_messages
+        on messages (message_id)
+    """
+sql_ddl_labels = """\
+    CREATE TABLE IF NOT EXISTS labels (
+        id INTEGER PRIMARY KEY,
+        label_id TEXT,
+        name TEXT,
+        synced INTEGER
+    )
+    """
+sql_ddl_labels_idx0 = """\
+    create unique index if not exists idx0_labels
+        on labels (label_id)
+    """
+sql_ddl_message_labels = """\
+    CREATE TABLE IF NOT EXISTS message_labels (
+       message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+       label_id INTEGER REFERENCES labels(id) ON DELETE CASCADE,
+       PRIMARY KEY (message_id, label_id)
+    )
+    """

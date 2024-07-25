@@ -16,7 +16,10 @@ from textual.widgets import Button, Footer, Header, Label, Static
 
 from gmailtuilib.gmailapi import (get_gmail_credentials, get_gmail_labels,
                                   get_gmail_message, list_gmail_messages)
-from gmailtuilib.sqllib import (sql_fetch_msgs_for_label, sql_find_ml,
+from gmailtuilib.sqllib import (sql_ddl_labels, sql_ddl_labels_idx0,
+                                sql_ddl_message_labels, sql_ddl_messages,
+                                sql_ddl_messages_idx0,
+                                sql_fetch_msgs_for_label, sql_find_ml,
                                 sql_insert_ml)
 
 
@@ -106,9 +109,13 @@ class GMailApp(App):
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
             last_thread_id = None
             n = 0
-            for message_id, thread_id, b64_message in fetchrows(cursor, cursor.arraysize):
+            for message_id, thread_id, b64_message in fetchrows(
+                cursor, cursor.arraysize
+            ):
                 if b64_message is None:
-                    b64_message, label_names = self.fetch_and_cache_message(conn, message_id)
+                    b64_message, label_names = self.fetch_and_cache_message(
+                        conn, message_id
+                    )
                     if b64_message is None:
                         print(f"Could not get message {message_id}.")
                         continue
@@ -134,6 +141,8 @@ class GMailApp(App):
                 )
                 self.call_from_thread(messages_widget.mount, widget)
                 n += 1
+                if n >= 100:
+                    break
 
     def fetch_and_cache_message(self, conn, message_id):
         """
@@ -250,35 +259,18 @@ class GMailApp(App):
         """
         Create local DB for storing mail.
         """
-        sql_messages = """\
-            CREATE TABLE messages (
-                id INTEGER PRIMARY KEY,
-                message_id TEXT,
-                thread_id TEXT,
-                b64_message TEXT
-            )
-            """
-        sql_labels = """\
-            CREATE TABLE labels (
-                id INTEGER PRIMARY KEY,
-                label_id TEXT,
-                name TEXT,
-                synced INTEGER
-            )
-            """
-        sql_message_labels = """\
-            CREATE TABLE message_labels (
-               message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
-               label_id INTEGER REFERENCES labels(id) ON DELETE CASCADE,
-               PRIMARY KEY (message_id, label_id)
-            )
-            """
+        ddl_statements = [
+            sql_ddl_messages,
+            sql_ddl_messages_idx0,
+            sql_ddl_labels,
+            sql_ddl_labels_idx0,
+            sql_ddl_message_labels,
+        ]
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
-            cursor.execute(sql_messages)
-            cursor.execute(sql_labels)
-            cursor.execute(sql_message_labels)
+            for sql in ddl_statements:
+                cursor.execute(sql)
             conn.commit()
 
     def action_toggle_dark(self) -> None:
