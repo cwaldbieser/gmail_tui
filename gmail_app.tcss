@@ -24,10 +24,19 @@ ButtonBar {
 
 .item-even {
     background: $background;
-    color: $text;
+    color: $text-muted;
 }
 
 .item-odd {
     background: $background-lighten-2;
+    color: $text-muted;
+}
+
+.unread {
     color: $text;
+    text-style: bold;
+}
+
+.diagnostic {
+   /* display: none;*/
 }

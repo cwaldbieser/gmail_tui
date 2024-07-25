@@ -3,12 +3,14 @@
 import os
 import pathlib
 import sqlite3
+import time
 from base64 import urlsafe_b64decode
 from collections import OrderedDict
 from email.parser import BytesHeaderParser
 
 import tomllib
 from dateutil.parser import parse as parse_date
+from dateutil.tz import tzlocal
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import ScrollableContainer
@@ -25,14 +27,15 @@ from gmailtuilib.sqllib import (sql_ddl_labels, sql_ddl_labels_idx0,
 
 
 class MessageItem(Static):
-    def __init__(self, thread_id, date_str, sender, subject, **kwds):
-        self.thread_id = thread_id
+    def __init__(self, message_id, date_str, sender, subject, **kwds):
+        self.message_id = message_id
         self.date_str = date_str
         self.sender = sender
         self.subject = subject
         super().__init__(**kwds)
 
     def compose(self):
+        yield Label(f"ID:      {self.message_id}", classes="diagnostic")
         yield Label(f"Date:    {self.date_str}")
         yield Label(f"From:    {self.sender}")
         yield Label(f"Subject: {self.subject}")
@@ -51,16 +54,22 @@ class Messages(ScrollableContainer):
         self.remove_children()
         message_threads = self.message_threads
         for n, (thread_id, threads) in enumerate(message_threads.items()):
+            item_classes = []
             if n % 2 == 0:
-                item_class = "item-even"
+                item_classes.append("item-even")
             else:
-                item_class = "item-odd"
+                item_classes.append("item-odd")
             minfo = threads[0]
+            message_id = minfo["message_id"]
             date_str = minfo["Date"]
             sender = minfo["From"]
             subject = minfo["Subject"]
+            unread = minfo["unread"]
+            if unread:
+                item_classes.append("unread")
+            item_class = " ".join(item_classes)
             widget = MessageItem(
-                thread_id, date_str, sender, subject, classes=item_class
+                message_id, date_str, sender, subject, classes=item_class
             )
             self.mount(widget)
 
@@ -112,7 +121,6 @@ class GMailApp(App):
         self.credentials = get_gmail_credentials(self.config)
         self.sync_labels()
         self.sync_messages(self.label)
-        # self.set_timer(5, callback=self.refresh_listview, pause=False)
         self.set_interval(15, callback=self.refresh_listview, pause=False)
 
     @work(exclusive=True, group="refresh-listview", thread=True)
@@ -145,14 +153,17 @@ class GMailApp(App):
                 msg = decode_b64_message_headers(b64_message)
                 date = msg.get("Date")
                 dt = parse_date(date)
+                dt = dt.astimezone(tzlocal())
                 date_str = dt.isoformat()
                 sender = msg.get("From")
                 subject = msg.get("Subject")
+                unread = "UNREAD" in label_names
                 minfo = {
                     "message_id": message_id,
                     "Date": date_str,
                     "From": sender,
                     "Subject": subject,
+                    "unread": unread,
                 }
                 threads.append(minfo)
                 n += 1
@@ -169,39 +180,45 @@ class GMailApp(App):
         gmail_msg = get_gmail_message(self.credentials, message_id)
         b64_message = gmail_msg["raw"]
         label_ids = gmail_msg["labelIds"]
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE messages SET b64_message = ? WHERE message_id = ?",
-            [b64_message, message_id],
-        )
-        conn.commit()
-        sql = """\
-            DELETE FROM message_labels
-            WHERE message_id = (
-                SELECT id
-                FROM messages
-                WHERE message_id = ?
-            )
-            """
-        cursor.execute(sql, [message_id])
-        sql = """\
-            INSERT INTO message_labels (message_id, label_id)
-            VALUES (
-                (
-                    SELECT id
-                    FROM messages
-                    WHERE message_id = ?
-                ),
-                (
-                    SELECT id
-                    FROM labels
-                    WHERE label_id = ?
+        for attempt in range(7):
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE messages SET b64_message = ? WHERE message_id = ?",
+                    [b64_message, message_id],
                 )
-            )
-            """
-        for label_id in label_ids:
-            cursor.execute(sql, [message_id, label_id])
-        conn.commit()
+                conn.commit()
+                sql = """\
+                    DELETE FROM message_labels
+                    WHERE message_id = (
+                        SELECT id
+                        FROM messages
+                        WHERE message_id = ?
+                    )
+                    """
+                cursor.execute(sql, [message_id])
+                sql = """\
+                    INSERT INTO message_labels (message_id, label_id)
+                    VALUES (
+                        (
+                            SELECT id
+                            FROM messages
+                            WHERE message_id = ?
+                        ),
+                        (
+                            SELECT id
+                            FROM labels
+                            WHERE label_id = ?
+                        )
+                    )
+                    """
+                for label_id in label_ids:
+                    cursor.execute(sql, [message_id, label_id])
+                conn.commit()
+            except sqlite3.OperationalError:
+                time.sleep(2)
+                continue
+            break
         sql = """\
             SELECT name
             FROM labels
