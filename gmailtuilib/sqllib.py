@@ -64,8 +64,7 @@ sql_ddl_messages = """\
         id INTEGER PRIMARY KEY,
         message_id TEXT,
         thread_id TEXT,
-        b64_message TEXT,
-        unread INTEGER
+        b64_message TEXT
     )
     """
 sql_ddl_messages_idx0 = """\
@@ -77,6 +76,7 @@ sql_ddl_labels = """\
         id INTEGER PRIMARY KEY,
         label_id TEXT,
         name TEXT,
+        is_system INTEGER,
         synced INTEGER
     )
     """

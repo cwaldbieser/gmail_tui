@@ -4,6 +4,7 @@ import os
 import pathlib
 import sqlite3
 from base64 import urlsafe_b64decode
+from collections import OrderedDict
 from email.parser import BytesHeaderParser
 
 import tomllib
@@ -38,11 +39,30 @@ class MessageItem(Static):
 
 
 class Messages(ScrollableContainer):
+    message_threads = OrderedDict()
+
     class Mounted(Message):
         pass
 
     def on_mount(self):
         self.post_message(self.Mounted())
+
+    def refresh_listview(self):
+        self.remove_children()
+        message_threads = self.message_threads
+        for n, (thread_id, threads) in enumerate(message_threads.items()):
+            if n % 2 == 0:
+                item_class = "item-even"
+            else:
+                item_class = "item-odd"
+            minfo = threads[0]
+            date_str = minfo["Date"]
+            sender = minfo["From"]
+            subject = minfo["Subject"]
+            widget = MessageItem(
+                thread_id, date_str, sender, subject, classes=item_class
+            )
+            self.mount(widget)
 
 
 class ButtonBar(Static):
@@ -68,7 +88,7 @@ class GMailApp(App):
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [("d", "toggle_dark", "Toggle dark mode"), ("x", "test", "Debbugging")]
 
-    page_size = 100
+    page_size = 50
     page = 0
     label = "INBOX"
 
@@ -92,7 +112,8 @@ class GMailApp(App):
         self.credentials = get_gmail_credentials(self.config)
         self.sync_labels()
         self.sync_messages(self.label)
-        self.set_timer(5, callback=self.refresh_listview, pause=False)
+        # self.set_timer(5, callback=self.refresh_listview, pause=False)
+        self.set_interval(15, callback=self.refresh_listview, pause=False)
 
     @work(exclusive=True, group="refresh-listview", thread=True)
     def refresh_listview(self):
@@ -101,48 +122,44 @@ class GMailApp(App):
         """
         print("Refreshing message list view ...")
         messages_widget = self.query_one("#messages")
-        messages_widget.remove_children()
         skip_rows = self.page * self.page_size
+        message_threads = OrderedDict()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
-            last_thread_id = None
             n = 0
             for message_id, thread_id, b64_message in fetchrows(
                 cursor, cursor.arraysize
             ):
+                b64_message, label_names = self.fetch_and_cache_message(
+                    conn, message_id
+                )
                 if b64_message is None:
-                    b64_message, label_names = self.fetch_and_cache_message(
-                        conn, message_id
-                    )
-                    if b64_message is None:
-                        print(f"Could not get message {message_id}.")
-                        continue
-                    if self.label not in label_names:
-                        print(f"Message {message_id} no longer has label {self.label}.")
-                        continue
-                if last_thread_id == thread_id:
-                    # Skip additional messages in the same thread.
+                    print(f"Could not get message {message_id}.")
                     continue
-                last_thread_id = thread_id
-                if n % 2 == 0:
-                    item_class = "item-even"
-                else:
-                    item_class = "item-odd"
+                if self.label not in label_names:
+                    print(f"Message {message_id} no longer has label {self.label}.")
+                    continue
+                threads = message_threads.setdefault(thread_id, [])
                 msg = decode_b64_message_headers(b64_message)
                 date = msg.get("Date")
                 dt = parse_date(date)
                 date_str = dt.isoformat()
                 sender = msg.get("From")
                 subject = msg.get("Subject")
-                widget = MessageItem(
-                    thread_id, date_str, sender, subject, classes=item_class
-                )
-                self.call_from_thread(messages_widget.mount, widget)
+                minfo = {
+                    "message_id": message_id,
+                    "Date": date_str,
+                    "From": sender,
+                    "Subject": subject,
+                }
+                threads.append(minfo)
                 n += 1
-                if n >= 100:
+                if n >= self.page_size:
                     break
+        messages_widget.message_threads = message_threads
+        self.call_from_thread(messages_widget.refresh_listview)
 
     def fetch_and_cache_message(self, conn, message_id):
         """
@@ -211,20 +228,27 @@ class GMailApp(App):
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             cursor.execute("UPDATE labels SET synced = FALSE")
-            for label_id, label_name in get_gmail_labels(self.credentials):
+            for label_id, label_name, label_type in get_gmail_labels(self.credentials):
+                is_system = int(label_type == "system")
                 cursor.execute(
                     "SELECT id, name FROM labels WHERE label_id = ?", [label_id]
                 )
                 row = cursor.fetchone()
                 if row is None:
                     cursor.execute(
-                        "INSERT INTO labels (label_id, name, synced) VALUES (?, ?, 1)",
-                        [label_id, label_name],
+                        """\
+                            INSERT INTO labels (label_id, name, is_system, synced)
+                            VALUES (?, ?, ?, 1)
+                        """,
+                        [label_id, label_name, is_system],
                     )
                 else:
                     cursor.execute(
-                        "UPDATE labels SET name = ?, synced = 1 WHERE label_id = ?",
-                        [label_name, label_id],
+                        """\
+                            UPDATE labels SET name = ?, is_system = ?, synced = 1
+                            WHERE label_id = ?
+                        """,
+                        [label_name, is_system, label_id],
                     )
             cursor.execute("DELETE FROM labels WHERE synced = FALSE")
             conn.commit()

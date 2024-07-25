@@ -11,7 +11,7 @@ MessageList {
 }
 
 ButtonBar {
-    background: cyan;
+    background: $background-darken-3;
     width: 100%;
     layout: horizontal;
     align-horizontal: center;
@@ -23,11 +23,11 @@ ButtonBar {
 }
 
 .item-even {
-    background: blue;
-    color: white;
+    background: $background;
+    color: $text;
 }
 
 .item-odd {
-    background: cornflowerblue;
-    color: white;
+    background: $background-lighten-2;
+    color: $text;
 }

@@ -32,7 +32,7 @@ def get_gmail_credentials(config):
 
 def get_gmail_labels(credentials):
     """
-    Generator produces pairs of label ID, label name.
+    Generator produces (label ID, label name, label type).
     """
     service = build("gmail", "v1", credentials=credentials)
     results = page_results(
@@ -43,7 +43,8 @@ def get_gmail_labels(credentials):
     for item in results:
         label_id = item["id"]
         label_name = item["name"]
-        yield label_id, label_name
+        label_type = item["type"]
+        yield label_id, label_name, label_type
 
 
 def list_gmail_messages(credentials, query):
