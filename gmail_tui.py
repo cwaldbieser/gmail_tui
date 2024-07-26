@@ -27,14 +27,17 @@ from gmailtuilib.sqllib import (sql_ddl_labels, sql_ddl_labels_idx0,
 
 
 class MessageItem(Static):
-    def __init__(self, message_id, date_str, sender, subject, **kwds):
+    def __init__(self, message_id, date_str, sender, subject, starred=False, **kwds):
         self.message_id = message_id
         self.date_str = date_str
         self.sender = sender
         self.subject = subject
+        self.starred = starred
         super().__init__(**kwds)
 
     def compose(self):
+        if self.starred:
+            yield Label("⭐")
         yield Label(f"ID:      {self.message_id}", classes="diagnostic")
         yield Label(f"Date:    {self.date_str}")
         yield Label(f"From:    {self.sender}")
@@ -65,11 +68,17 @@ class Messages(ScrollableContainer):
             sender = minfo["From"]
             subject = minfo["Subject"]
             unread = minfo["unread"]
+            starred = minfo["starred"]
             if unread:
                 item_classes.append("unread")
             item_class = " ".join(item_classes)
             widget = MessageItem(
-                message_id, date_str, sender, subject, classes=item_class
+                message_id,
+                date_str,
+                sender,
+                subject,
+                starred=starred,
+                classes=item_class,
             )
             self.mount(widget)
 
@@ -159,12 +168,14 @@ class GMailApp(App):
                 sender = msg.get("From")
                 subject = msg.get("Subject")
                 unread = "UNREAD" in label_names
+                starred = "STARRED" in label_names
                 minfo = {
                     "message_id": message_id,
                     "Date": date_str,
                     "From": sender,
                     "Subject": subject,
                     "unread": unread,
+                    "starred": starred,
                 }
                 threads.append(minfo)
                 n += 1
