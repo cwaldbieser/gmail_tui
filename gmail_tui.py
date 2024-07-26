@@ -13,9 +13,11 @@ from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import ScrollableContainer
+# from textual.containers import ScrollableContainer
 from textual.message import Message
-from textual.widgets import Button, Footer, Header, Label, Static
+# from textual.reactive import reactive
+from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
+                             Static)
 
 from gmailtuilib.gmailapi import (get_gmail_credentials, get_gmail_labels,
                                   get_gmail_message, list_gmail_messages)
@@ -31,7 +33,7 @@ class MessageItem(Static):
         self.message_id = message_id
         self.date_str = date_str
         self.sender = sender
-        self.subject = subject
+        self.subject = " ".join(subject.split())
         self.starred = starred
         super().__init__(**kwds)
 
@@ -41,10 +43,13 @@ class MessageItem(Static):
         yield Label(f"ID:      {self.message_id}", classes="diagnostic")
         yield Label(f"Date:    {self.date_str}")
         yield Label(f"From:    {self.sender}")
-        yield Label(f"Subject: {self.subject}")
+        yield Label(f"Subject: {self.subject}", classes="subject")
+
+    def allow_focus(self):
+        return True
 
 
-class Messages(ScrollableContainer):
+class Messages(ListView):
     message_threads = OrderedDict()
 
     class Mounted(Message):
@@ -53,15 +58,19 @@ class Messages(ScrollableContainer):
     def on_mount(self):
         self.post_message(self.Mounted())
 
+    def on_list_view_highlighted(self, event):
+        print("entered on_list_view_highlighted().")
+        # for item in self.children:
+        #     item.remove_class("selected")
+        # item = event.item
+        # if item is not None:
+        #     item.add_class("selected")
+
     def refresh_listview(self):
-        self.remove_children()
+        curr_index = self.index
+        self.clear()
         message_threads = self.message_threads
         for n, (thread_id, threads) in enumerate(message_threads.items()):
-            item_classes = []
-            if n % 2 == 0:
-                item_classes.append("item-even")
-            else:
-                item_classes.append("item-odd")
             minfo = threads[0]
             message_id = minfo["message_id"]
             date_str = minfo["Date"]
@@ -69,18 +78,26 @@ class Messages(ScrollableContainer):
             subject = minfo["Subject"]
             unread = minfo["unread"]
             starred = minfo["starred"]
-            if unread:
-                item_classes.append("unread")
-            item_class = " ".join(item_classes)
             widget = MessageItem(
                 message_id,
                 date_str,
                 sender,
                 subject,
                 starred=starred,
-                classes=item_class,
             )
-            self.mount(widget)
+            list_item = ListItem(widget)
+            if n % 2 == 0:
+                widget.add_class("item-even")
+            else:
+                widget.add_class("item-odd")
+            if unread:
+                list_item.add_class("unread")
+            self.mount(list_item)
+        thread_count = len(self.message_threads)
+        if curr_index is not None and thread_count > curr_index:
+            self.index = curr_index
+        elif thread_count > 0:
+            self.index = 0
 
 
 class ButtonBar(Static):
@@ -292,7 +309,7 @@ class GMailApp(App):
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             for message_id, thread_id in list_gmail_messages(
-                self.credentials, f"label:{label}"
+                self.config, self.credentials, f"label:{label}"
             ):
                 cursor.execute(
                     "SELECT id FROM messages WHERE message_id = ?", [message_id]

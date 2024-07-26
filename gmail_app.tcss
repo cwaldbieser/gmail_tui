@@ -1,3 +1,28 @@
+ListItem {
+    background: $background;
+    width: 100%;
+}
+
+Messages {
+    width: 100%;
+}
+
+ListView > ListItem.--highlight > MessageItem {
+    background: $accent 50%;
+}
+ListView:focus > ListItem.--highlight > MessageItem {
+    background: $accent;
+}
+
+Label.subject {
+   width: 100%;
+}
+
+
+MessageItem {
+    width: 100%;
+}
+
 MainPanel {
     layout: horizontal;
     background: gray;

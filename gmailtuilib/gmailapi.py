@@ -46,19 +46,23 @@ def get_gmail_labels(credentials):
         yield label_id, label_name, label_type
 
 
-def list_gmail_messages(credentials, query):
+def list_gmail_messages(config, credentials, query):
     """
     Generator yields message_id, thread_id tuples for messages that match
     `query`.
     """
+    api_config = config.get("api", {})
+    max_messages_per_query = api_config.get("max_messages_per_query", 500)
     service = build("gmail", "v1", credentials=credentials)
     results = page_results(
         service.users().messages().list, items_key="messages", userId="me", q=query
     )
-    for message in results:
+    for n, message in enumerate(results):
         message_id = message["id"]
         thread_id = message["threadId"]
         yield message_id, thread_id
+        if n + 1 >= max_messages_per_query:
+            break
 
 
 def get_gmail_message(credentials, message_id):
