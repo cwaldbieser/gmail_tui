@@ -31,32 +31,47 @@ sql_insert_ml = """\
 
 sql_fetch_msgs_for_label = """\
     SELECT
-        messages.message_id,
-        messages.thread_id,
-        messages.b64_message
-    FROM messages
-        INNER JOIN
-        (
+        message_id,
+        thread_id,
+        b64_message
+    FROM (
+        SELECT
+            id,
+            message_id,
+            thread_id,
+            b64_message,
+            name,
+            max_mid,
+            DENSE_RANK()
+            OVER
+            (
+                ORDER BY max_mid DESC
+            ) thread_number
+        FROM (
             SELECT
-                thread_id,
-                ROW_NUMBER()
-                OVER
-                (
-                    ORDER BY thread_id DESC
-                ) thread_num
-            FROM (
-                SELECT DISTINCT thread_id
-                FROM messages
-            ) threads
-        ) threads2
-            ON messages.thread_id = threads2.thread_id
-        INNER JOIN message_labels
-            ON messages.id = message_labels.message_id
-        INNER JOIN labels
-            ON message_labels.label_id = labels.id
-    WHERE labels.name = ?
-    AND threads2.thread_num > ?
-    ORDER BY threads2.thread_num, messages.message_id DESC
+                messages.id,
+                messages.message_id,
+                messages.thread_id,
+                messages.b64_message,
+                labels.name,
+                threads.max_mid
+            FROM messages
+                INNER JOIN (
+                    SELECT
+                        thread_id, MAX(message_id) max_mid
+                    FROM messages
+                    GROUP BY thread_id
+                ) threads
+                    ON threads.thread_id = messages.thread_id
+                LEFT OUTER JOIN message_labels
+                    ON message_labels.message_id = messages.id
+                LEFT OUTER JOIN labels
+                    ON message_labels.label_id = labels.id
+            WHERE (labels.name IS NULL OR labels.name = ?)
+        ) mtl
+    ) x
+    WHERE thread_number > ?
+    ORDER BY max_mid DESC, message_id DESC
     """
 
 sql_ddl_messages = """\

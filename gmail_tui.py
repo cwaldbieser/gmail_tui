@@ -133,6 +133,7 @@ class GMailApp(App):
         skip_rows = self.page * self.page_size
         message_threads = OrderedDict()
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
@@ -242,6 +243,7 @@ class GMailApp(App):
         """
         print("Syncing labels ...")
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             cursor.execute("UPDATE labels SET synced = FALSE")
@@ -275,6 +277,7 @@ class GMailApp(App):
     def sync_messages(self, label):
         print(f"Syncing messages for query: {label} ...")
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             for message_id, thread_id in list_gmail_messages(
@@ -308,6 +311,7 @@ class GMailApp(App):
             sql_ddl_message_labels,
         ]
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             for sql in ddl_statements:
