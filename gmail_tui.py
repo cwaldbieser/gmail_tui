@@ -7,6 +7,7 @@ import time
 from base64 import urlsafe_b64decode
 from collections import OrderedDict
 from email.parser import BytesHeaderParser
+from email.header import decode_header
 
 import tomllib
 from dateutil.parser import parse as parse_date
@@ -69,6 +70,10 @@ class Messages(ListView):
             date_str = minfo["Date"]
             sender = minfo["From"]
             subject = minfo["Subject"]
+            try:
+                subject = decode_header(subject)[0][0].decode("utf-8")
+            except Exception:
+                pass
             unread = minfo["unread"]
             starred = minfo["starred"]
             widget = MessageItem(
