@@ -51,20 +51,13 @@ class MessageItem(Static):
 
 class Messages(ListView):
     message_threads = OrderedDict()
+    thread_map = {}
 
     class Mounted(Message):
         pass
 
     def on_mount(self):
         self.post_message(self.Mounted())
-
-    def on_list_view_highlighted(self, event):
-        print("entered on_list_view_highlighted().")
-        # for item in self.children:
-        #     item.remove_class("selected")
-        # item = event.item
-        # if item is not None:
-        #     item.add_class("selected")
 
     def refresh_listview(self):
         curr_index = self.index
@@ -92,7 +85,10 @@ class Messages(ListView):
                 widget.add_class("item-odd")
             if unread:
                 list_item.add_class("unread")
-            self.mount(list_item)
+            if n == curr_index:
+                list_item.highlighted = True
+            self.append(list_item)
+
         thread_count = len(self.message_threads)
         if curr_index is not None and thread_count > curr_index:
             self.index = curr_index
