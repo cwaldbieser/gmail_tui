@@ -3,7 +3,6 @@
 import os
 import pathlib
 import sqlite3
-from base64 import urlsafe_b64decode
 from collections import OrderedDict
 # from email.parser import BytesHeaderParser
 from email.parser import HeaderParser
@@ -159,11 +158,11 @@ class GMailApp(App):
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
             n = 0
-            for message_id, thread_id, b64_message, unread, starred, uid in fetchrows(
+            for message_id, thread_id, message_string, unread, starred, uid in fetchrows(
                 cursor, cursor.arraysize
             ):
                 threads = message_threads.setdefault(thread_id, [])
-                msg = decode_b64_message_headers(b64_message)
+                msg = parse_string_message_headers(message_string)
                 print(f"msg keys: {list(msg.keys())}")
                 date = msg.get("Date")
                 print(f"[DEBUG] Attempting to parse date string: {date}")
@@ -211,7 +210,7 @@ class GMailApp(App):
                     starred = is_starred(flags)
                     cursor.execute(
                         "INSERT INTO messages"
-                        " (gmessage_id, gthread_id, b64_message, unread, starred)"
+                        " (gmessage_id, gthread_id, message_string, unread, starred)"
                         " VALUES (?, ?, ?, ?, ?)",
                         [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
                     )
@@ -271,15 +270,12 @@ def fetchrows(cursor, num_rows=10, row_wrapper=None):
             yield row
 
 
-def decode_b64_message_headers(b64_message):
+def parse_string_message_headers(message_string):
     """
-    Decode the message headers from a base64 encoded message string.
+    Parse a string into structured message headers.
     """
-    # mbytes = urlsafe_b64decode(b64_message.encode())
-    # parser = BytesHeaderParser(policy=default_policy)
-    # msg = parser.parsebytes(mbytes)
     parser = HeaderParser(policy=default_policy)
-    msg = parser.parsestr(b64_message)
+    msg = parser.parsestr(message_string)
     return msg
 
 

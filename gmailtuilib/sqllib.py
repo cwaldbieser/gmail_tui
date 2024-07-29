@@ -33,7 +33,7 @@ sql_fetch_msgs_for_label = """\
     SELECT
         gmessage_id,
         gthread_id,
-        b64_message,
+        message_string,
         unread,
         starred,
         uid
@@ -42,7 +42,7 @@ sql_fetch_msgs_for_label = """\
             id,
             gmessage_id,
             gthread_id,
-            b64_message,
+            message_string,
             unread,
             starred,
             label,
@@ -58,7 +58,7 @@ sql_fetch_msgs_for_label = """\
                 messages.id,
                 messages.gmessage_id,
                 messages.gthread_id,
-                messages.b64_message,
+                messages.message_string,
                 messages.unread,
                 messages.starred,
                 labels.label,
@@ -91,7 +91,7 @@ sql_ddl_messages = """\
         id INTEGER PRIMARY KEY,
         gmessage_id TEXT,
         gthread_id TEXT,
-        b64_message TEXT,
+        message_string TEXT,
         unread INT,
         starred INT
     )
