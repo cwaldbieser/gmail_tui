@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "adb1dc1a6524657b2ff9df7693cbf82226f52ffc41f0c529c08189dbb594bdcb"
+            "sha256": "ced9ce835e5d2c4ef12a3248128de33557f87cb45b256761e7a984248a9749af"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -138,12 +138,12 @@
         },
         "google-api-python-client": {
             "hashes": [
-                "sha256:a8b5c5724885e5be9f5368739aa0ccf416627da4ebd914b410a090c18f84d692",
-                "sha256:e739cb74aac8258b1886cb853b0722d47c81fe07ad649d7f2206f06530513c04"
+                "sha256:1dd279124e4e77cbda4769ffb4abe7e7c32528ef1e18739320fef2a07b750764",
+                "sha256:31080fbf0e64687876135cc23d1bec1ca3b80d7702177dd17b04131ea889eb70"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.7'",
-            "version": "==2.137.0"
+            "version": "==2.138.0"
         },
         "google-auth": {
             "hashes": [
@@ -193,6 +193,14 @@
             ],
             "markers": "python_version >= '3.5'",
             "version": "==3.7"
+        },
+        "imap-tools": {
+            "hashes": [
+                "sha256:585a363b394c2bb8df48173bba9f834451d45c218fe51e57740d0e0ca54d8859",
+                "sha256:fa133d62164c325a14d7e9060a9ce5154caff8e04b0303b5a91abc9357987a3a"
+            ],
+            "index": "pypi",
+            "version": "==1.7.1"
         },
         "linkify-it-py": {
             "hashes": [
@@ -344,12 +352,12 @@
         },
         "textual": {
             "hashes": [
-                "sha256:4d93d80d203f7fb7ba51828a546e8777019700d529a1b405ceee313dea2edfc2",
-                "sha256:ccd1e873370577f557dfdf2b3411f2a4f68b57d4365f9d83a00d084afb15f5a6"
+                "sha256:69b18904d11400e586274deb1270f5db7b4254a2ac00fe805f23b16c324345e4",
+                "sha256:808c4e8727283ef84a123620449b217b6033ffde49f3ed195b3d0f98bb042969"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.8' and python_version < '4.0'",
-            "version": "==0.73.0"
+            "markers": "python_full_version >= '3.8.1' and python_full_version < '4.0.0'",
+            "version": "==0.74.0"
         },
         "typing-extensions": {
             "hashes": [
@@ -792,12 +800,12 @@
         },
         "textual": {
             "hashes": [
-                "sha256:4d93d80d203f7fb7ba51828a546e8777019700d529a1b405ceee313dea2edfc2",
-                "sha256:ccd1e873370577f557dfdf2b3411f2a4f68b57d4365f9d83a00d084afb15f5a6"
+                "sha256:69b18904d11400e586274deb1270f5db7b4254a2ac00fe805f23b16c324345e4",
+                "sha256:808c4e8727283ef84a123620449b217b6033ffde49f3ed195b3d0f98bb042969"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.8' and python_version < '4.0'",
-            "version": "==0.73.0"
+            "markers": "python_full_version >= '3.8.1' and python_full_version < '4.0.0'",
+            "version": "==0.74.0"
         },
         "textual-dev": {
             "hashes": [

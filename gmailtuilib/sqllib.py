@@ -4,12 +4,12 @@ sql_find_ml = """\
     WHERE message_id = (
         SELECT id
         FROM messages
-        WHERE message_id = ?
+        WHERE gmessage_id = ?
     )
     AND label_id = (
         SELECT id
         FROM labels
-        WHERE name = ?
+        WHERE label = ?
     )
     """
 
@@ -19,28 +19,34 @@ sql_insert_ml = """\
         (
         SELECT id
         FROM messages
-        WHERE message_id = ?
+        WHERE gmessage_id = ?
         ),
         (
         SELECT id
         FROM labels
-        WHERE name = ?
+        WHERE label = ?
         )
     )
     """
 
 sql_fetch_msgs_for_label = """\
     SELECT
-        message_id,
-        thread_id,
-        b64_message
+        gmessage_id,
+        gthread_id,
+        b64_message,
+        unread,
+        starred,
+        uid
     FROM (
         SELECT
             id,
-            message_id,
-            thread_id,
+            gmessage_id,
+            gthread_id,
             b64_message,
-            name,
+            unread,
+            starred,
+            label,
+            uid,
             max_mid,
             DENSE_RANK()
             OVER
@@ -50,59 +56,65 @@ sql_fetch_msgs_for_label = """\
         FROM (
             SELECT
                 messages.id,
-                messages.message_id,
-                messages.thread_id,
+                messages.gmessage_id,
+                messages.gthread_id,
                 messages.b64_message,
-                labels.name,
+                messages.unread,
+                messages.starred,
+                labels.label,
+                CASE
+                    WHEN labels.label IS NOT NULL THEN message_labels.uid
+                    ELSE NULL
+                END uid,
                 threads.max_mid
             FROM messages
                 INNER JOIN (
                     SELECT
-                        thread_id, MAX(message_id) max_mid
+                        gthread_id, MAX(gmessage_id) max_mid
                     FROM messages
-                    GROUP BY thread_id
+                    GROUP BY gthread_id
                 ) threads
-                    ON threads.thread_id = messages.thread_id
+                    ON threads.gthread_id = messages.gthread_id
                 LEFT OUTER JOIN message_labels
                     ON message_labels.message_id = messages.id
                 LEFT OUTER JOIN labels
                     ON message_labels.label_id = labels.id
-            WHERE (labels.name IS NULL OR labels.name = ?)
+            WHERE (labels.label IS NULL OR labels.label = ?)
         ) mtl
     ) x
     WHERE thread_number > ?
-    ORDER BY max_mid DESC, message_id DESC
+    ORDER BY max_mid DESC, gmessage_id DESC
     """
 
 sql_ddl_messages = """\
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY,
-        message_id TEXT,
-        thread_id TEXT,
-        b64_message TEXT
+        gmessage_id TEXT,
+        gthread_id TEXT,
+        b64_message TEXT,
+        unread INT,
+        starred INT
     )
     """
 sql_ddl_messages_idx0 = """\
     create unique index if not exists idx0_messages
-        on messages (message_id)
+        on messages (gmessage_id)
     """
 sql_ddl_labels = """\
     CREATE TABLE IF NOT EXISTS labels (
         id INTEGER PRIMARY KEY,
-        label_id TEXT,
-        name TEXT,
-        is_system INTEGER,
-        synced INTEGER
+        label TEXT
     )
     """
 sql_ddl_labels_idx0 = """\
     create unique index if not exists idx0_labels
-        on labels (label_id)
+        on labels (label)
     """
 sql_ddl_message_labels = """\
     CREATE TABLE IF NOT EXISTS message_labels (
        message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
        label_id INTEGER REFERENCES labels(id) ON DELETE CASCADE,
+       uid TEXT,
        PRIMARY KEY (message_id, label_id)
     )
     """

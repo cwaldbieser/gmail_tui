@@ -3,11 +3,11 @@
 import os
 import pathlib
 import sqlite3
-import time
 from base64 import urlsafe_b64decode
 from collections import OrderedDict
+# from email.parser import BytesHeaderParser
+from email.parser import HeaderParser
 from email.policy import default as default_policy
-from email.parser import BytesHeaderParser
 
 import tomllib
 from dateutil.parser import parse as parse_date
@@ -20,8 +20,8 @@ from textual.message import Message
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              Static)
 
-from gmailtuilib.gmailapi import (get_gmail_credentials, get_gmail_labels,
-                                  get_gmail_message, list_gmail_messages)
+from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
+                              get_mailbox, is_starred, is_unread)
 from gmailtuilib.sqllib import (sql_ddl_labels, sql_ddl_labels_idx0,
                                 sql_ddl_message_labels, sql_ddl_messages,
                                 sql_ddl_messages_idx0,
@@ -141,10 +141,8 @@ class GMailApp(App):
         self.db_path = pathlib.Path("~/.gmail_tui/mail.db").expanduser()
         if not os.path.exists(self.db_path):
             self.create_db()
-        self.credentials = get_gmail_credentials(self.config)
-        self.sync_labels()
-        self.sync_messages(self.label)
-        self.set_interval(15, callback=self.refresh_listview, pause=False)
+        self.sync_messages()
+        self.set_interval(10, callback=self.refresh_listview, pause=False)
 
     @work(exclusive=True, group="refresh-listview", thread=True)
     def refresh_listview(self):
@@ -161,28 +159,21 @@ class GMailApp(App):
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
             n = 0
-            for message_id, thread_id, b64_message in fetchrows(
+            for message_id, thread_id, b64_message, unread, starred, uid in fetchrows(
                 cursor, cursor.arraysize
             ):
-                b64_message, label_names = self.fetch_and_cache_message(
-                    conn, message_id
-                )
-                if b64_message is None:
-                    print(f"Could not get message {message_id}.")
-                    continue
-                if self.label not in label_names:
-                    print(f"Message {message_id} no longer has label {self.label}.")
-                    continue
                 threads = message_threads.setdefault(thread_id, [])
                 msg = decode_b64_message_headers(b64_message)
+                print(f"msg keys: {list(msg.keys())}")
                 date = msg.get("Date")
+                print(f"[DEBUG] Attempting to parse date string: {date}")
                 dt = parse_date(date)
                 dt = dt.astimezone(tzlocal())
                 date_str = dt.isoformat()
                 sender = msg.get("From")
                 subject = msg.get("Subject")
-                unread = "UNREAD" in label_names
-                starred = "STARRED" in label_names
+                unread = bool(unread)
+                starred = bool(starred)
                 minfo = {
                     "message_id": message_id,
                     "Date": date_str,
@@ -198,131 +189,38 @@ class GMailApp(App):
         messages_widget.message_threads = message_threads
         self.call_from_thread(messages_widget.refresh_listview)
 
-    def fetch_and_cache_message(self, conn, message_id):
-        """
-        Fetch and cache a GMail message details.
-        Returns b64 message and set of label names.
-        """
-        gmail_msg = get_gmail_message(self.credentials, message_id)
-        b64_message = gmail_msg["raw"]
-        label_ids = gmail_msg["labelIds"]
-        for attempt in range(7):
-            try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE messages SET b64_message = ? WHERE message_id = ?",
-                    [b64_message, message_id],
-                )
-                conn.commit()
-                sql = """\
-                    DELETE FROM message_labels
-                    WHERE message_id = (
-                        SELECT id
-                        FROM messages
-                        WHERE message_id = ?
-                    )
-                    """
-                cursor.execute(sql, [message_id])
-                sql = """\
-                    INSERT INTO message_labels (message_id, label_id)
-                    VALUES (
-                        (
-                            SELECT id
-                            FROM messages
-                            WHERE message_id = ?
-                        ),
-                        (
-                            SELECT id
-                            FROM labels
-                            WHERE label_id = ?
-                        )
-                    )
-                    """
-                for label_id in label_ids:
-                    cursor.execute(sql, [message_id, label_id])
-                conn.commit()
-            except sqlite3.OperationalError:
-                time.sleep(2)
-                continue
-            break
-        sql = """\
-            SELECT name
-            FROM labels
-                INNER JOIN message_labels
-                    ON labels.id = message_labels.label_id
-                INNER JOIN messages
-                    ON message_labels.message_id = messages.id
-            WHERE messages.message_id = ?
-            """
-        cursor.execute(sql, [message_id])
-        label_names = set([])
-        for row in fetchrows(cursor, cursor.arraysize):
-            label_name = row[0]
-            label_names.add(label_name)
-        return b64_message, label_names
-
-    @work(exclusive=True, group="label-sync", thread=True)
-    def sync_labels(self):
-        """
-        Sync the cloud labels to the local DB.
-        """
-        print("Syncing labels ...")
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA foreign_keys = ON;")
-            cursor = conn.cursor()
-            cursor.execute("UPDATE labels SET synced = FALSE")
-            for label_id, label_name, label_type in get_gmail_labels(self.credentials):
-                is_system = int(label_type == "system")
-                cursor.execute(
-                    "SELECT id, name FROM labels WHERE label_id = ?", [label_id]
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    cursor.execute(
-                        """\
-                            INSERT INTO labels (label_id, name, is_system, synced)
-                            VALUES (?, ?, ?, 1)
-                        """,
-                        [label_id, label_name, is_system],
-                    )
-                else:
-                    cursor.execute(
-                        """\
-                            UPDATE labels SET name = ?, is_system = ?, synced = 1
-                            WHERE label_id = ?
-                        """,
-                        [label_name, is_system, label_id],
-                    )
-            cursor.execute("DELETE FROM labels WHERE synced = FALSE")
-            conn.commit()
-            print("Label sync complete.")
-
     @work(exclusive=True, group="message-sync", thread=True)
-    def sync_messages(self, label):
-        print(f"Syncing messages for query: {label} ...")
-        with sqlite3.connect(self.db_path) as conn:
+    def sync_messages(self):
+        access_token = get_imap_access_token(self.config)
+        with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
+            self.db_path
+        ) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
-            for message_id, thread_id in list_gmail_messages(
-                self.config, self.credentials, f"label:{label}"
+            for gmessage_id, gthread_id, msg in fetch_google_messages(
+                mailbox, headers_only=False, limit=500
             ):
                 cursor.execute(
-                    "SELECT id FROM messages WHERE message_id = ?", [message_id]
+                    "SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id]
                 )
                 row = cursor.fetchone()
                 if row is None:
+                    flags = msg.flags
+                    unread = is_unread(flags)
+                    starred = is_starred(flags)
                     cursor.execute(
-                        "INSERT INTO messages (message_id, thread_id) VALUES (?, ?)",
-                        [message_id, thread_id],
+                        "INSERT INTO messages"
+                        " (gmessage_id, gthread_id, b64_message, unread, starred)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                        [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
                     )
-                cursor.execute(sql_find_ml, [message_id, label])
+                cursor.execute(sql_find_ml, [gmessage_id, self.label])
                 row = cursor.fetchone()
                 if row is None:
-                    cursor.execute(sql_insert_ml, [message_id, label])
+                    cursor.execute(sql_insert_ml, [gmessage_id, self.label])
             conn.commit()
-        print(f"Message sync complete for query: {label}")
+        print(f"Message sync complete for query: {self.label}")
 
     def create_db(self):
         """
@@ -340,6 +238,7 @@ class GMailApp(App):
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             for sql in ddl_statements:
+                print(f"Executing DDL: {sql}")
                 cursor.execute(sql)
             conn.commit()
 
@@ -376,9 +275,11 @@ def decode_b64_message_headers(b64_message):
     """
     Decode the message headers from a base64 encoded message string.
     """
-    mbytes = urlsafe_b64decode(b64_message.encode())
-    parser = BytesHeaderParser(policy=default_policy)
-    msg = parser.parsebytes(mbytes)
+    # mbytes = urlsafe_b64decode(b64_message.encode())
+    # parser = BytesHeaderParser(policy=default_policy)
+    # msg = parser.parsebytes(mbytes)
+    parser = HeaderParser(policy=default_policy)
+    msg = parser.parsestr(b64_message)
     return msg
 
 
