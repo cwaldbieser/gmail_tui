@@ -199,7 +199,7 @@ class GMailApp(App):
                 uid,
             ) in fetchrows(cursor, cursor.arraysize):
                 if uid is not None:
-                    uids.append(uid)
+                    uids.append(int(uid))
                 threads = message_threads.setdefault(thread_id, [])
                 msg = parse_string_message_headers(message_string)
                 date = msg.get("Date")
@@ -286,8 +286,8 @@ class GMailApp(App):
         max_uid = self.max_uid
         if min_uid is None or max_uid is None:
             return
-        min_uid = int(min_uid)
-        max_uid = int(max_uid)
+        min_uid = min_uid
+        max_uid = max_uid
         cursor.execute(sql_get_message_labels_in_uid_range, [min_uid, max_uid])
         rows_to_delete = []
         for row in fetchrows(cursor, cursor.arraysize):
@@ -326,17 +326,19 @@ class GMailApp(App):
             cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
 
     def accept_imap_updates(self, mailbox, conn):
+        print("Accepting IMAP IDLE updates ...")
         self.imap_idle = True
         while self.imap_idle:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=60)
             if responses:
+                print(f"Detected IMAP changes: {responses}")
                 cursor = conn.cursor()
                 # Check for changes to currently viewed UIDs
                 found_uids = set([])
                 for gmessage_id, gthread_id, msg in fetch_google_messages(
                     mailbox,
-                    criteria=UidRange(self.min_uid, self.max_uid),
+                    criteria=UidRange(str(self.min_uid), str(self.max_uid)),
                     headers_only=False,
                 ):
                     self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
@@ -352,6 +354,9 @@ class GMailApp(App):
                     self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
                 cursor.close()
                 conn.commit()
+            else:
+                print("No IMAP changes detected.")
+        print("No longer accepting IMAP IDLE updates.")
 
     def create_db(self):
         """
