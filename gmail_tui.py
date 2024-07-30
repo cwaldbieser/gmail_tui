@@ -158,9 +158,14 @@ class GMailApp(App):
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
             n = 0
-            for message_id, thread_id, message_string, unread, starred, uid in fetchrows(
-                cursor, cursor.arraysize
-            ):
+            for (
+                message_id,
+                thread_id,
+                message_string,
+                unread,
+                starred,
+                uid,
+            ) in fetchrows(cursor, cursor.arraysize):
                 threads = message_threads.setdefault(thread_id, [])
                 msg = parse_string_message_headers(message_string)
                 print(f"msg keys: {list(msg.keys())}")
@@ -190,6 +195,7 @@ class GMailApp(App):
 
     @work(exclusive=True, group="message-sync", thread=True)
     def sync_messages(self):
+        print(f"Starting message sync for label {self.label} ...")
         access_token = get_imap_access_token(self.config)
         with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
             self.db_path
@@ -200,26 +206,42 @@ class GMailApp(App):
             for gmessage_id, gthread_id, msg in fetch_google_messages(
                 mailbox, headers_only=False, limit=500
             ):
+                flags = msg.flags
+                unread = is_unread(flags)
+                starred = is_starred(flags)
                 cursor.execute(
                     "SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id]
                 )
                 row = cursor.fetchone()
                 if row is None:
-                    flags = msg.flags
-                    unread = is_unread(flags)
-                    starred = is_starred(flags)
+                    sql = """\
+                        INSERT INTO messages
+                            (gmessage_id, gthread_id, message_string, unread, starred)
+                            VALUES (?, ?, ?, ?, ?)
+                        """
                     cursor.execute(
-                        "INSERT INTO messages"
-                        " (gmessage_id, gthread_id, message_string, unread, starred)"
-                        " VALUES (?, ?, ?, ?, ?)",
+                        sql,
                         [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
                     )
+                else:
+                    db_id = row[0]
+                    sql = "UPDATE messages SET unread = ?, starred = ? WHERE id = ?"
+                    cursor.execute(sql, [unread, starred, db_id])
                 cursor.execute(sql_find_ml, [gmessage_id, self.label])
                 row = cursor.fetchone()
                 if row is None:
                     cursor.execute(sql_insert_ml, [gmessage_id, self.label])
             conn.commit()
-        print(f"Message sync complete for query: {self.label}")
+            print(f"Message sync complete for query: {self.label}")
+            self.accept_imap_updates(mailbox)
+
+    def accept_imap_updates(self, mailbox):
+        self.imap_idle = True
+        while self.imap_idle:
+            with mailbox.idle as idle:
+                responses = idle.poll(timeout=60)
+            if responses:
+                pass
 
     def create_db(self):
         """
