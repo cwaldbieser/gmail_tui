@@ -91,17 +91,15 @@ class Messages(ListView):
         curr_index = self.index
         self.clear()
         message_threads = self.message_threads
-        for n, (thread_id, threads) in enumerate(message_threads.items()):
-            minfo = threads[0]
-            message_id = minfo["message_id"]
-            uid = minfo["uid"]
+        for n, (uid, minfo) in enumerate(message_threads.items()):
+            gmessage_id = minfo["gmessage_id"]
             date_str = minfo["Date"]
             sender = minfo["From"]
             subject = minfo["Subject"]
             unread = minfo["unread"]
             starred = minfo["starred"]
             widget = MessageItem(
-                message_id,
+                gmessage_id,
                 uid,
                 date_str,
                 sender,
@@ -191,16 +189,14 @@ class GMailApp(App):
             n = 0
             uids = []
             for (
-                message_id,
-                thread_id,
+                gmessage_id,
+                gthread_id,
                 message_string,
                 unread,
                 starred,
                 uid,
             ) in fetchrows(cursor, cursor.arraysize):
-                if uid is not None:
-                    uids.append(int(uid))
-                threads = message_threads.setdefault(thread_id, [])
+                uids.append(int(uid))
                 msg = parse_string_message_headers(message_string)
                 date = msg.get("Date")
                 dt = parse_date(date)
@@ -211,15 +207,14 @@ class GMailApp(App):
                 unread = bool(unread)
                 starred = bool(starred)
                 minfo = {
-                    "message_id": message_id,
-                    "uid": uid,
+                    "gmessage_id": gmessage_id,
                     "Date": date_str,
                     "From": sender,
                     "Subject": subject,
                     "unread": unread,
                     "starred": starred,
                 }
-                threads.append(minfo)
+                message_threads[uid] = minfo
                 n += 1
                 if n >= self.page_size:
                     break
@@ -244,7 +239,7 @@ class GMailApp(App):
             for gmessage_id, gthread_id, msg in fetch_google_messages(
                 mailbox, headers_only=False, limit=500
             ):
-                uid_set.add(msg.uid)
+                uid_set.add(int(msg.uid))
                 self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
             cursor.execute(sql_all_uids_for_label, [self.label])
             message_labels_to_delete = []
@@ -330,7 +325,7 @@ class GMailApp(App):
         self.imap_idle = True
         while self.imap_idle:
             with mailbox.idle as idle:
-                responses = idle.poll(timeout=60)
+                responses = idle.poll(timeout=30)
             if responses:
                 print(f"Detected IMAP changes: {responses}")
                 cursor = conn.cursor()
@@ -342,7 +337,7 @@ class GMailApp(App):
                     headers_only=False,
                 ):
                     self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
-                    found_uids.add(msg.uid)
+                    found_uids.add(int(msg.uid))
                 # Check for deleted messages.
                 self.check_for_deleted_messages(cursor, found_uids)
                 # Check for new (unseen) messages.

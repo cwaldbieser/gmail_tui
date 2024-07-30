@@ -64,51 +64,53 @@ sql_fetch_msgs_for_label = """\
         uid
     FROM (
         SELECT
-            id,
             gmessage_id,
             gthread_id,
             message_string,
             unread,
             starred,
-            label,
             uid,
-            max_mid,
-            DENSE_RANK()
+            thread_number,
+            thread_rank,
+            ROW_NUMBER()
             OVER
             (
-                ORDER BY max_mid DESC
-            ) thread_number
+                ORDER BY uid DESC
+            ) row_num
         FROM (
             SELECT
-                messages.id,
-                messages.gmessage_id,
-                messages.gthread_id,
-                messages.message_string,
-                messages.unread,
-                messages.starred,
-                labels.label,
-                CASE
-                    WHEN labels.label IS NOT NULL THEN message_labels.uid
-                    ELSE NULL
-                END uid,
-                threads.max_mid
-            FROM messages
-                INNER JOIN (
-                    SELECT
-                        gthread_id, MAX(gmessage_id) max_mid
-                    FROM messages
-                    GROUP BY gthread_id
-                ) threads
-                    ON threads.gthread_id = messages.gthread_id
-                LEFT OUTER JOIN message_labels
-                    ON message_labels.message_id = messages.id
-                LEFT OUTER JOIN labels
-                    ON message_labels.label_id = labels.id
-            WHERE labels.label = ?
-        ) mtl
-    ) x
-    WHERE thread_number > ?
-    ORDER BY max_mid DESC, gmessage_id DESC
+                *,
+                ROW_NUMBER()
+                OVER
+                (
+                    PARTITION BY thread_number
+                    ORDER BY gmessage_id DESC
+                ) thread_rank
+            FROM (
+                SELECT
+                    gmessage_id,
+                    gthread_id,
+                    message_string,
+                    unread,
+                    starred,
+                    uid,
+                    DENSE_RANK()
+                    OVER (
+                        ORDER BY gthread_id DESC
+                    ) thread_number
+                FROM messages
+                    INNER JOIN message_labels
+                        ON message_labels.message_id = messages.id
+                    INNER JOIN labels
+                        ON message_labels.label_id = labels.id
+                WHERE labels.label = ?
+            ) in1_table
+        ) outer_table
+        WHERE thread_rank = 1
+    ) final
+    WHERE row_num > ?
+    AND row_num < 500
+    ORDER BY uid DESC
     """
 
 sql_ddl_messages = """\
@@ -139,7 +141,7 @@ sql_ddl_message_labels = """\
     CREATE TABLE IF NOT EXISTS message_labels (
        message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
        label_id INTEGER REFERENCES labels(id) ON DELETE CASCADE,
-       uid TEXT,
+       uid INTEGER,
        PRIMARY KEY (message_id, label_id)
     )
     """
