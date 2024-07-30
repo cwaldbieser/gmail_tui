@@ -11,6 +11,7 @@ from email.policy import default as default_policy
 import tomllib
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
+from imap_tools import A, UidRange
 from textual import work
 from textual.app import App, ComposeResult
 # from textual.containers import ScrollableContainer
@@ -158,6 +159,7 @@ class GMailApp(App):
             cursor = conn.cursor()
             cursor.execute(sql_fetch_msgs_for_label, [self.label, skip_rows])
             n = 0
+            uids = []
             for (
                 message_id,
                 thread_id,
@@ -166,11 +168,11 @@ class GMailApp(App):
                 starred,
                 uid,
             ) in fetchrows(cursor, cursor.arraysize):
+                if uid is not None:
+                    uids.append(uid)
                 threads = message_threads.setdefault(thread_id, [])
                 msg = parse_string_message_headers(message_string)
-                print(f"msg keys: {list(msg.keys())}")
                 date = msg.get("Date")
-                print(f"[DEBUG] Attempting to parse date string: {date}")
                 dt = parse_date(date)
                 dt = dt.astimezone(tzlocal())
                 date_str = dt.isoformat()
@@ -190,6 +192,8 @@ class GMailApp(App):
                 n += 1
                 if n >= self.page_size:
                     break
+        self.min_uid = min(uids)
+        self.max_uid = max(uids)
         messages_widget.message_threads = message_threads
         self.call_from_thread(messages_widget.refresh_listview)
 
@@ -203,45 +207,81 @@ class GMailApp(App):
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
+            self.insert_current_label(cursor)
+            conn.commit()
             for gmessage_id, gthread_id, msg in fetch_google_messages(
                 mailbox, headers_only=False, limit=500
             ):
-                flags = msg.flags
-                unread = is_unread(flags)
-                starred = is_starred(flags)
-                cursor.execute(
-                    "SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id]
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    sql = """\
-                        INSERT INTO messages
-                            (gmessage_id, gthread_id, message_string, unread, starred)
-                            VALUES (?, ?, ?, ?, ?)
-                        """
-                    cursor.execute(
-                        sql,
-                        [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
-                    )
-                else:
-                    db_id = row[0]
-                    sql = "UPDATE messages SET unread = ?, starred = ? WHERE id = ?"
-                    cursor.execute(sql, [unread, starred, db_id])
-                cursor.execute(sql_find_ml, [gmessage_id, self.label])
-                row = cursor.fetchone()
-                if row is None:
-                    cursor.execute(sql_insert_ml, [gmessage_id, self.label])
+                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
             conn.commit()
             print(f"Message sync complete for query: {self.label}")
-            self.accept_imap_updates(mailbox)
+            self.accept_imap_updates(mailbox, conn)
 
-    def accept_imap_updates(self, mailbox):
+    def insert_current_label(self, cursor):
+        sql = """\
+            SELECT id
+            FROM labels
+            WHERE label = ?
+            """
+        cursor.execute(sql, [self.label])
+        row = cursor.fetchone()
+        if row is None:
+            sql = """\
+                INSERT INTO labels (label) VALUES (?)
+                """
+            cursor.execute(sql, [self.label])
+
+    def insert_or_update_message(self, cursor, gmessage_id, gthread_id, msg):
+        """
+        `msg` must be an imap_tools.message.Message.
+        """
+        flags = msg.flags
+        unread = is_unread(flags)
+        starred = is_starred(flags)
+        cursor.execute("SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id])
+        row = cursor.fetchone()
+        if row is None:
+            sql = """\
+                INSERT INTO messages
+                    (gmessage_id, gthread_id, message_string, unread, starred)
+                    VALUES (?, ?, ?, ?, ?)
+                """
+            cursor.execute(
+                sql,
+                [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
+            )
+        else:
+            db_id = row[0]
+            sql = "UPDATE messages SET unread = ?, starred = ? WHERE id = ?"
+            cursor.execute(sql, [unread, starred, db_id])
+        cursor.execute(sql_find_ml, [gmessage_id, self.label])
+        row = cursor.fetchone()
+        if row is None:
+            cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
+
+    def accept_imap_updates(self, mailbox, conn):
         self.imap_idle = True
         while self.imap_idle:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=60)
             if responses:
-                pass
+                cursor = conn.cursor()
+                # Check for changes to currently viewed UIDs
+                for gmessage_id, gthread_id, msg in fetch_google_messages(
+                    mailbox,
+                    criteria=UidRange(self.min_uid, self.max_uid),
+                    headers_only=False,
+                ):
+                    self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                # Check for new (unseen) messages.
+                for gmessage_id, gthread_id, msg in fetch_google_messages(
+                    mailbox,
+                    criteria=A(seen=False),
+                    headers_only=False,
+                ):
+                    self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                cursor.close()
+                conn.commit()
 
     def create_db(self):
         """

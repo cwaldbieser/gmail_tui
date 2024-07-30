@@ -14,7 +14,7 @@ sql_find_ml = """\
     """
 
 sql_insert_ml = """\
-    INSERT INTO message_labels (message_id, label_id)
+    INSERT INTO message_labels (message_id, label_id, uid)
     VALUES (
         (
         SELECT id
@@ -25,7 +25,8 @@ sql_insert_ml = """\
         SELECT id
         FROM labels
         WHERE label = ?
-        )
+        ),
+        ?
     )
     """
 

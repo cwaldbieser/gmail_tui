@@ -113,11 +113,15 @@ def batched(iterable, n):
         yield batch
 
 
-def fetch_google_messages(mailbox, batch_size=100, headers_only=True, limit=None):
+def fetch_google_messages(
+    mailbox, criteria="All", batch_size=100, headers_only=True, limit=None
+):
     """
     Fetch messages in batches and decorate with Google IDs.
+    Generator produces (gmessage_id, gthread_id, msg).
     """
     msg_generator = mailbox.fetch(
+        criteria=criteria,
         reverse=True,
         headers_only=headers_only,
         mark_seen=False,
