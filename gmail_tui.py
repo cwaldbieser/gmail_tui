@@ -22,26 +22,53 @@ from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
 
 from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
                               get_mailbox, is_starred, is_unread)
-from gmailtuilib.sqllib import (sql_ddl_labels, sql_ddl_labels_idx0,
-                                sql_ddl_message_labels, sql_ddl_messages,
-                                sql_ddl_messages_idx0,
+from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
+                                sql_ddl_labels_idx0, sql_ddl_message_labels,
+                                sql_ddl_messages, sql_ddl_messages_idx0,
+                                sql_delete_message_label,
                                 sql_fetch_msgs_for_label, sql_find_ml,
+                                sql_get_message_labels_in_uid_range,
                                 sql_insert_ml)
 
 
 class MessageItem(Static):
-    def __init__(self, message_id, date_str, sender, subject, starred=False, **kwds):
+    def __init__(
+        self,
+        message_id,
+        uid,
+        date_str,
+        sender,
+        subject,
+        starred=False,
+        unread=False,
+        **kwds,
+    ):
         self.message_id = message_id
+        if uid is not None:
+            self.uid = uid
+        else:
+            self.uid = ""
         self.date_str = date_str
         self.sender = sender
         self.subject = " ".join(subject.split())
         self.starred = starred
+        self.unread = unread
         super().__init__(**kwds)
 
     def compose(self):
-        if self.starred:
-            yield Label("⭐")
-        yield Label(f"ID:      {self.message_id}", classes="diagnostic")
+        starred = self.starred
+        unread = self.unread
+        icons = []
+        if starred:
+            icons.append("⭐")
+        if unread:
+            icons.append("")
+        else:
+            icons.append("")
+        status_line = " ".join(icons)
+        yield Label(status_line)
+        yield Label(f"GMSGID:  {self.message_id}", classes="diagnostic")
+        yield Label(f"UID:     {self.uid}", classes="diagnostic")
         yield Label(f"Date:    {self.date_str}")
         yield Label(f"From:    {self.sender}")
         yield Label(f"Subject: {self.subject}", classes="subject")
@@ -67,6 +94,7 @@ class Messages(ListView):
         for n, (thread_id, threads) in enumerate(message_threads.items()):
             minfo = threads[0]
             message_id = minfo["message_id"]
+            uid = minfo["uid"]
             date_str = minfo["Date"]
             sender = minfo["From"]
             subject = minfo["Subject"]
@@ -74,10 +102,12 @@ class Messages(ListView):
             starred = minfo["starred"]
             widget = MessageItem(
                 message_id,
+                uid,
                 date_str,
                 sender,
                 subject,
                 starred=starred,
+                unread=unread,
             )
             list_item = ListItem(widget)
             if n % 2 == 0:
@@ -182,6 +212,7 @@ class GMailApp(App):
                 starred = bool(starred)
                 minfo = {
                     "message_id": message_id,
+                    "uid": uid,
                     "Date": date_str,
                     "From": sender,
                     "Subject": subject,
@@ -209,10 +240,25 @@ class GMailApp(App):
             cursor = conn.cursor()
             self.insert_current_label(cursor)
             conn.commit()
+            uid_set = set([])
             for gmessage_id, gthread_id, msg in fetch_google_messages(
                 mailbox, headers_only=False, limit=500
             ):
+                uid_set.add(msg.uid)
                 self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+            cursor.execute(sql_all_uids_for_label, [self.label])
+            message_labels_to_delete = []
+            print(f"Fetching all uids for label {self.label} ...")
+            print(f"Found uid set includes: {sorted(list(uid_set))}")
+            for row in fetchrows(cursor, num_rows=cursor.arraysize):
+                row_id, uid = row
+                print(f"Found row with uid: {uid}")
+                if uid not in uid_set:
+                    print(f"UID {uid} to be deleted from label {self.label} ...")
+                    message_labels_to_delete.append(row_id)
+            print(f"Row IDs of message labels to delete: {message_labels_to_delete}")
+            for row_id in message_labels_to_delete:
+                cursor.execute(sql_delete_message_label, [row_id])
             conn.commit()
             print(f"Message sync complete for query: {self.label}")
             self.accept_imap_updates(mailbox, conn)
@@ -230,6 +276,26 @@ class GMailApp(App):
                 INSERT INTO labels (label) VALUES (?)
                 """
             cursor.execute(sql, [self.label])
+
+    def check_for_deleted_messages(self, cursor, found_uids):
+        """
+        Check for messages that have been removed from the current label with UID
+        between self.min_uid and self.max_uid.
+        """
+        min_uid = self.min_uid
+        max_uid = self.max_uid
+        if min_uid is None or max_uid is None:
+            return
+        min_uid = int(min_uid)
+        max_uid = int(max_uid)
+        cursor.execute(sql_get_message_labels_in_uid_range, [min_uid, max_uid])
+        rows_to_delete = []
+        for row in fetchrows(cursor, cursor.arraysize):
+            row_id, uid = row
+            if uid not in found_uids:
+                rows_to_delete.append(row_id)
+        for row_id in rows_to_delete:
+            cursor.execute(sql_delete_message_label, [row_id])
 
     def insert_or_update_message(self, cursor, gmessage_id, gthread_id, msg):
         """
@@ -267,12 +333,16 @@ class GMailApp(App):
             if responses:
                 cursor = conn.cursor()
                 # Check for changes to currently viewed UIDs
+                found_uids = set([])
                 for gmessage_id, gthread_id, msg in fetch_google_messages(
                     mailbox,
                     criteria=UidRange(self.min_uid, self.max_uid),
                     headers_only=False,
                 ):
                     self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                    found_uids.add(msg.uid)
+                # Check for deleted messages.
+                self.check_for_deleted_messages(cursor, found_uids)
                 # Check for new (unseen) messages.
                 for gmessage_id, gthread_id, msg in fetch_google_messages(
                     mailbox,

@@ -1,3 +1,27 @@
+sql_all_uids_for_label = """\
+    SELECT
+        message_labels.rowid,
+        message_labels.uid
+    FROM message_labels
+        INNER JOIN labels
+            ON message_labels.label_id = labels.id
+    WHERE labels.label = ?
+    """
+
+sql_delete_message_label = """\
+    DELETE FROM message_labels
+    WHERE rowid = ?
+    """
+
+sql_get_message_labels_in_uid_range = """\
+    SELECT
+        rowid,
+        uid
+    FROM message_labels
+    WHERE CAST(uid AS INTEGER) >= ?
+    AND CAST(uid AS INTEGER) <= ?
+    """
+
 sql_find_ml = """\
     SELECT message_id, label_id
     FROM message_labels
@@ -80,7 +104,7 @@ sql_fetch_msgs_for_label = """\
                     ON message_labels.message_id = messages.id
                 LEFT OUTER JOIN labels
                     ON message_labels.label_id = labels.id
-            WHERE (labels.label IS NULL OR labels.label = ?)
+            WHERE labels.label = ?
         ) mtl
     ) x
     WHERE thread_number > ?
