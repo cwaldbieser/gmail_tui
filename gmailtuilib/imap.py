@@ -148,7 +148,7 @@ def fetch_google_messages(
         for msg_wrapper in messages.values():
             msg = msg_wrapper["msg"]
             gmessage_id = msg_wrapper.get("gmessage_id")
-            gthread_id = msg_wrapper["gthread_id"]
+            gthread_id = msg_wrapper.get("gthread_id")
             yield gmessage_id, gthread_id, msg
 
 

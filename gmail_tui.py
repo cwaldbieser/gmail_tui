@@ -11,7 +11,7 @@ from email.policy import default as default_policy
 import tomllib
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
-from imap_tools import A, UidRange
+from imap_tools import A
 from textual import work
 from textual.app import App, ComposeResult
 from textual.message import Message
@@ -71,12 +71,18 @@ class MessageItem(Static):
 
     def watch_unread(self, value):
         self.update_statusline()
+        if self.parent is None:
+            return
+        if value:
+            self.parent.add_class("unread")
+        else:
+            self.parent.remove_class("unread")
 
     def update_statusline(self):
         children = self.children
         if len(children) == 0:
             return
-        statusline = self.compose_statusline
+        statusline = self.compose_statusline()
         label = children[0]
         label.update(statusline)
 
@@ -113,79 +119,41 @@ class Messages(ListView):
         uids_in_view = self.uids_in_view
         uids_to_be_removed_from_view = uids_in_view - uids_should_be_in_view
         uids_to_be_added_to_view = uids_should_be_in_view - uids_in_view
-        there_are_current_messages = len(uids_in_view) > 0
         messages_need_to_be_added = len(uids_to_be_added_to_view) > 0
         messages_need_to_be_deleted = len(uids_to_be_removed_from_view) > 0
         if not (messages_need_to_be_added or messages_need_to_be_deleted):
-            return
-        if (
-            there_are_current_messages
-            and messages_need_to_be_added
-            and (min(uids_to_be_added_to_view) > max(uids_in_view))
-        ):
-            # All new messages go to the top of the list.
-            uids_to_be_added_to_view = list(uids_to_be_added_to_view)
-            uids_to_be_added_to_view.sort(reverse=True)
-            list_items_to_add = []
-            for uid in uids_to_be_added_to_view:
-                minfo = message_threads[uid]
-                widget = self.create_message_item(uid, minfo)
-                list_item = ListItem(widget)
-                list_items_to_add.append(list_item)
-            self.insert(0, list_items_to_add)
-            # Remove items that no longer belong.
-            positions_of_list_items_to_remove = []
-            for pos, list_item in enumerate(self.children):
-                uid = list_item.children[0].uid
-                if uid in uids_to_be_removed_from_view:
-                    positions_of_list_items_to_remove.append(pos)
-            self.remove_items(positions_of_list_items_to_remove)
-            # Update all items
-            for n, (list_item, minfo) in enumerate(
-                zip(self.children, message_threads.values())
-            ):
-                message_item = list_item.children[0]
+            for minfo, list_item in zip(message_threads.values(), self.children):
                 unread = minfo["unread"]
                 starred = minfo["starred"]
-                message_item.starred = starred
+                message_item = list_item.children[0]
                 message_item.unread = unread
-                if unread:
-                    list_item.add_class("unread")
-                else:
-                    list_item.remove_class("unread")
-                if n % 2 == 0:
-                    message_item.add_class("item-even")
-                else:
-                    message_item.add_class("item-odd")
-            uids_in_view.clear()
-            uids_in_view.update(set(message_threads.keys()))
+                message_item.starred = starred
             return
+        # Just clear out the view and rebuild it.
+        curr_index = self.index
+        new_index = None
+        if curr_index is None:
+            curr_uid = None
         else:
-            # Just clear out the view and rebuild it.
-            curr_index = self.index
-            new_index = None
-            if curr_index is None:
-                curr_uid = None
+            curr_uid = self.children[curr_index].children[0].uid
+        self.clear()
+        for n, (uid, minfo) in enumerate(message_threads.items()):
+            widget = self.create_message_item(uid, minfo)
+            list_item = ListItem(widget)
+            if uid == curr_uid:
+                list_item.highlighted = True
+                new_index = n
+            if n % 2 == 0:
+                widget.add_class("item-even")
             else:
-                curr_uid = self.children[curr_index].children[0].uid
-            self.clear()
-            for n, (uid, minfo) in enumerate(message_threads.items()):
-                widget = self.create_message_item(uid, minfo)
-                list_item = ListItem(widget)
-                if uid == curr_uid:
-                    list_item.highlighted = True
-                    new_index = n
-                if n % 2 == 0:
-                    widget.add_class("item-even")
-                else:
-                    widget.add_class("item-odd")
-                unread = minfo["unread"]
-                if unread:
-                    list_item.add_class("unread")
-                self.append(list_item)
-            self.index = new_index
-            uids_in_view.clear()
-            uids_in_view.update(set(message_threads.keys()))
+                widget.add_class("item-odd")
+            unread = minfo["unread"]
+            if unread:
+                list_item.add_class("unread")
+            self.append(list_item)
+        self.index = new_index
+        uids_in_view.clear()
+        uids_in_view.update(set(message_threads.keys()))
 
     def create_message_item(self, uid, minfo):
         gmessage_id = minfo["gmessage_id"]
@@ -301,6 +269,7 @@ class GMailApp(App):
                     break
         self.min_uid = min(uids)
         self.max_uid = max(uids)
+        print(f"[DEBUG] message_threads has {len(message_threads)} items.")
         messages_widget.message_threads = message_threads
         self.call_from_thread(messages_widget.refresh_listview)
 
@@ -324,13 +293,13 @@ class GMailApp(App):
                 self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
             cursor.execute(sql_all_uids_for_label, [self.label])
             message_labels_to_delete = []
-            print(f"Fetching all uids for label {self.label} ...")
-            print(f"Found uid set includes: {sorted(list(uid_set))}")
+            print(f"[DEBUG] Fetching all uids for label {self.label} ...")
+            print(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
             for row in fetchrows(cursor, num_rows=cursor.arraysize):
                 row_id, uid = row
                 print(f"Found row with uid: {uid}")
                 if uid not in uid_set:
-                    print(f"UID {uid} to be deleted from label {self.label} ...")
+                    print(f"[DEBUG] UID {uid} to be deleted from label {self.label} ...")
                     message_labels_to_delete.append(row_id)
             print(f"Row IDs of message labels to delete: {message_labels_to_delete}")
             for row_id in message_labels_to_delete:
@@ -358,12 +327,12 @@ class GMailApp(App):
         Check for messages that have been removed from the current label with UID
         between self.min_uid and self.max_uid.
         """
+        print("[DEBUG] Checking for deleted messages ...")
         min_uid = self.min_uid
         max_uid = self.max_uid
         if min_uid is None or max_uid is None:
             return
-        min_uid = min_uid
-        max_uid = max_uid
+        print(f"min UID: {min_uid}, max UID: {max_uid}")
         cursor.execute(sql_get_message_labels_in_uid_range, [min_uid, max_uid])
         rows_to_delete = []
         for row in fetchrows(cursor, cursor.arraysize):
@@ -406,32 +375,29 @@ class GMailApp(App):
         self.imap_idle = True
         while self.imap_idle:
             with mailbox.idle as idle:
-                responses = idle.poll(timeout=30)
-            if responses:
-                print(f"Detected IMAP changes: {responses}")
-                cursor = conn.cursor()
-                # Check for changes to currently viewed UIDs
-                found_uids = set([])
-                for gmessage_id, gthread_id, msg in fetch_google_messages(
-                    mailbox,
-                    criteria=UidRange(str(self.min_uid), str(self.max_uid)),
-                    headers_only=False,
-                ):
-                    self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
-                    found_uids.add(int(msg.uid))
-                # Check for deleted messages.
-                self.check_for_deleted_messages(cursor, found_uids)
-                # Check for new (unseen) messages.
-                for gmessage_id, gthread_id, msg in fetch_google_messages(
-                    mailbox,
-                    criteria=A(seen=False),
-                    headers_only=False,
-                ):
-                    self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
-                cursor.close()
-                conn.commit()
-            else:
-                print("No IMAP changes detected.")
+                responses = idle.poll(timeout=60)
+            print(f"IDLE responses: {responses}")
+            cursor = conn.cursor()
+            # Check for changes to currently viewed UIDs
+            found_uids = set([])
+            for gmessage_id, gthread_id, msg in fetch_google_messages(
+                mailbox,
+                headers_only=False,
+                limit=500,
+            ):
+                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                found_uids.add(int(msg.uid))
+            # Check for deleted messages.
+            self.check_for_deleted_messages(cursor, found_uids)
+            # Check for new (unseen) messages.
+            for gmessage_id, gthread_id, msg in fetch_google_messages(
+                mailbox,
+                criteria=A(seen=False),
+                headers_only=False,
+            ):
+                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+            cursor.close()
+            conn.commit()
         print("No longer accepting IMAP IDLE updates.")
 
     def create_db(self):
