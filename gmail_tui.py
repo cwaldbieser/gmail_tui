@@ -16,6 +16,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.message import Message
 from textual.reactive import reactive
+from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              Static)
 
@@ -28,6 +29,15 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_fetch_msgs_for_label, sql_find_ml,
                                 sql_get_message_labels_in_uid_range,
                                 sql_insert_ml)
+
+
+class MessageScreen(Screen):
+    BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
+
+    def compose(self):
+        yield Header()
+        yield Static("Message goes here.")
+        yield Footer()
 
 
 class MessageItem(Static):
@@ -194,18 +204,27 @@ class MainPanel(Static):
 class GMailApp(App):
     """A Textual app to manage stopwatches."""
 
+    SCREENS = {"msg_screen": MessageScreen()}
     CSS_PATH = "gmail_app.tcss"
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode"), ("x", "test", "Debbugging")]
+    BINDINGS = [
+        ("d", "toggle_dark", "Toggle dark mode"),
+        ("q", "quit", "Quit"),
+        ("x", "test", "Debbugging"),
+    ]
 
     page_size = 50
     page = 0
     label = "INBOX"
+    imap_idle = False
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
         yield MainPanel()
         yield Footer()
+
+    def on_list_view_selected(self):
+        self.push_screen(self.SCREENS["msg_screen"])
 
     def on_messages_mounted(self, message):
         # self.update_messages()
@@ -302,7 +321,9 @@ class GMailApp(App):
                 row_id, uid = row
                 print(f"Found row with uid: {uid}")
                 if uid not in uid_set:
-                    print(f"[DEBUG] UID {uid} to be deleted from label {self.label} ...")
+                    print(
+                        f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
+                    )
                     message_labels_to_delete.append(row_id)
             print(f"Row IDs of message labels to delete: {message_labels_to_delete}")
             for row_id in message_labels_to_delete:
@@ -378,7 +399,7 @@ class GMailApp(App):
         self.imap_idle = True
         while self.imap_idle:
             with mailbox.idle as idle:
-                responses = idle.poll(timeout=60)
+                responses = idle.poll(timeout=30)
             print(f"IDLE responses: {responses}")
             cursor = conn.cursor()
             # Check for changes to currently viewed UIDs
@@ -430,6 +451,12 @@ class GMailApp(App):
     def action_test(self):
         button = self.query_one("#btn-forwards")
         button.focus()
+
+    def action_quit(self):
+        self.imap_idle = False
+        self.workers.cancel_all()
+        self.exit()
+        print("Shutting down ...")
 
     def on_button_pressed(self, event: Button.Pressed):
         button = event.button
