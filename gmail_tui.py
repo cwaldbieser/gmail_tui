@@ -267,6 +267,8 @@ class GMailApp(App):
                 n += 1
                 if n >= self.page_size:
                     break
+        if len(uids) == 0:
+            return
         self.min_uid = min(uids)
         self.max_uid = max(uids)
         print(f"[DEBUG] message_threads has {len(message_threads)} items.")
@@ -286,6 +288,7 @@ class GMailApp(App):
             self.insert_current_label(cursor)
             conn.commit()
             uid_set = set([])
+            mailbox.folder.set(self.label)
             for gmessage_id, gthread_id, msg in fetch_google_messages(
                 mailbox, headers_only=False, limit=500
             ):
