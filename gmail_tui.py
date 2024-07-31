@@ -14,9 +14,8 @@ from dateutil.tz import tzlocal
 from imap_tools import A, UidRange
 from textual import work
 from textual.app import App, ComposeResult
-# from textual.containers import ScrollableContainer
 from textual.message import Message
-# from textual.reactive import reactive
+from textual.reactive import reactive
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              Static)
 
@@ -32,6 +31,9 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
 
 
 class MessageItem(Static):
+    starred = reactive(False)
+    unread = reactive(False)
+
     def __init__(
         self,
         message_id,
@@ -43,29 +45,17 @@ class MessageItem(Static):
         unread=False,
         **kwds,
     ):
+        super().__init__(**kwds)
         self.message_id = message_id
-        if uid is not None:
-            self.uid = uid
-        else:
-            self.uid = ""
+        self.uid = uid
         self.date_str = date_str
         self.sender = sender
         self.subject = " ".join(subject.split())
         self.starred = starred
         self.unread = unread
-        super().__init__(**kwds)
 
     def compose(self):
-        starred = self.starred
-        unread = self.unread
-        icons = []
-        if starred:
-            icons.append("⭐")
-        if unread:
-            icons.append("")
-        else:
-            icons.append("")
-        status_line = " ".join(icons)
+        status_line = self.compose_statusline()
         yield Label(status_line)
         yield Label(f"GMSGID:  {self.message_id}", classes="diagnostic")
         yield Label(f"UID:     {self.uid}", classes="diagnostic")
@@ -76,10 +66,37 @@ class MessageItem(Static):
     def allow_focus(self):
         return True
 
+    def watch_starred(self, value):
+        self.update_statusline()
+
+    def watch_unread(self, value):
+        self.update_statusline()
+
+    def update_statusline(self):
+        children = self.children
+        if len(children) == 0:
+            return
+        statusline = self.compose_statusline
+        label = children[0]
+        label.update(statusline)
+
+    def compose_statusline(self):
+        starred = self.starred
+        unread = self.unread
+        icons = []
+        if starred:
+            icons.append("⭐")
+        if unread:
+            icons.append("")
+        else:
+            icons.append("")
+        status_line = " ".join(icons)
+        return status_line
+
 
 class Messages(ListView):
     message_threads = OrderedDict()
-    thread_map = {}
+    uids_in_view = set([])
 
     class Mounted(Message):
         pass
@@ -88,41 +105,105 @@ class Messages(ListView):
         self.post_message(self.Mounted())
 
     def refresh_listview(self):
-        curr_index = self.index
-        self.clear()
+        """
+        Refresh the list view to match the data.
+        """
         message_threads = self.message_threads
-        for n, (uid, minfo) in enumerate(message_threads.items()):
-            gmessage_id = minfo["gmessage_id"]
-            date_str = minfo["Date"]
-            sender = minfo["From"]
-            subject = minfo["Subject"]
-            unread = minfo["unread"]
-            starred = minfo["starred"]
-            widget = MessageItem(
-                gmessage_id,
-                uid,
-                date_str,
-                sender,
-                subject,
-                starred=starred,
-                unread=unread,
-            )
-            list_item = ListItem(widget)
-            if n % 2 == 0:
-                widget.add_class("item-even")
+        uids_should_be_in_view = set(message_threads.keys())
+        uids_in_view = self.uids_in_view
+        uids_to_be_removed_from_view = uids_in_view - uids_should_be_in_view
+        uids_to_be_added_to_view = uids_should_be_in_view - uids_in_view
+        there_are_current_messages = len(uids_in_view) > 0
+        messages_need_to_be_added = len(uids_to_be_added_to_view) > 0
+        messages_need_to_be_deleted = len(uids_to_be_removed_from_view) > 0
+        if not (messages_need_to_be_added or messages_need_to_be_deleted):
+            return
+        if (
+            there_are_current_messages
+            and messages_need_to_be_added
+            and (min(uids_to_be_added_to_view) > max(uids_in_view))
+        ):
+            # All new messages go to the top of the list.
+            uids_to_be_added_to_view = list(uids_to_be_added_to_view)
+            uids_to_be_added_to_view.sort(reverse=True)
+            list_items_to_add = []
+            for uid in uids_to_be_added_to_view:
+                minfo = message_threads[uid]
+                widget = self.create_message_item(uid, minfo)
+                list_item = ListItem(widget)
+                list_items_to_add.append(list_item)
+            self.insert(0, list_items_to_add)
+            # Remove items that no longer belong.
+            positions_of_list_items_to_remove = []
+            for pos, list_item in enumerate(self.children):
+                uid = list_item.children[0].uid
+                if uid in uids_to_be_removed_from_view:
+                    positions_of_list_items_to_remove.append(pos)
+            self.remove_items(positions_of_list_items_to_remove)
+            # Update all items
+            for n, (list_item, minfo) in enumerate(
+                zip(self.children, message_threads.values())
+            ):
+                message_item = list_item.children[0]
+                unread = minfo["unread"]
+                starred = minfo["starred"]
+                message_item.starred = starred
+                message_item.unread = unread
+                if unread:
+                    list_item.add_class("unread")
+                else:
+                    list_item.remove_class("unread")
+                if n % 2 == 0:
+                    message_item.add_class("item-even")
+                else:
+                    message_item.add_class("item-odd")
+            uids_in_view.clear()
+            uids_in_view.update(set(message_threads.keys()))
+            return
+        else:
+            # Just clear out the view and rebuild it.
+            curr_index = self.index
+            new_index = None
+            if curr_index is None:
+                curr_uid = None
             else:
-                widget.add_class("item-odd")
-            if unread:
-                list_item.add_class("unread")
-            if n == curr_index:
-                list_item.highlighted = True
-            self.append(list_item)
+                curr_uid = self.children[curr_index].children[0].uid
+            self.clear()
+            for n, (uid, minfo) in enumerate(message_threads.items()):
+                widget = self.create_message_item(uid, minfo)
+                list_item = ListItem(widget)
+                if uid == curr_uid:
+                    list_item.highlighted = True
+                    new_index = n
+                if n % 2 == 0:
+                    widget.add_class("item-even")
+                else:
+                    widget.add_class("item-odd")
+                unread = minfo["unread"]
+                if unread:
+                    list_item.add_class("unread")
+                self.append(list_item)
+            self.index = new_index
+            uids_in_view.clear()
+            uids_in_view.update(set(message_threads.keys()))
 
-        thread_count = len(self.message_threads)
-        if curr_index is not None and thread_count > curr_index:
-            self.index = curr_index
-        elif thread_count > 0:
-            self.index = 0
+    def create_message_item(self, uid, minfo):
+        gmessage_id = minfo["gmessage_id"]
+        date_str = minfo["Date"]
+        sender = minfo["From"]
+        subject = minfo["Subject"]
+        unread = minfo["unread"]
+        starred = minfo["starred"]
+        widget = MessageItem(
+            gmessage_id,
+            uid,
+            date_str,
+            sender,
+            subject,
+            starred=starred,
+            unread=unread,
+        )
+        return widget
 
 
 class ButtonBar(Static):
