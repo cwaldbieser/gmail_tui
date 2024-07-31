@@ -1,3 +1,15 @@
+sql_get_message_string_by_uid_and_label = """\
+    SELECT
+        message_string
+    FROM messages
+        INNER JOIN message_labels
+            ON messages.id = message_labels.message_id
+        INNER JOIN labels
+            ON message_labels.label_id = labels.id
+    WHERE labels.label = ?
+    AND message_labels.uid = ?
+    """
+
 sql_all_uids_for_label = """\
     SELECT
         message_labels.rowid,

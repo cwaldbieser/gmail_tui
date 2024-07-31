@@ -5,7 +5,7 @@ import pathlib
 import sqlite3
 from collections import OrderedDict
 # from email.parser import BytesHeaderParser
-from email.parser import HeaderParser
+from email.parser import HeaderParser, Parser
 from email.policy import default as default_policy
 
 import tomllib
@@ -28,16 +28,38 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_delete_message_label,
                                 sql_fetch_msgs_for_label, sql_find_ml,
                                 sql_get_message_labels_in_uid_range,
+                                sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml)
 
 
 class MessageScreen(Screen):
     BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
 
+    msg = reactive(None, init=False, recompose=True)
+    text = reactive("No text.")
+
     def compose(self):
         yield Header()
-        yield Static("Message goes here.")
+        yield Static(self.text)
         yield Footer()
+
+    def watch_msg(self, msg):
+        print("[DEBUG] Entered watch_msg().")
+        if msg is None:
+            print("[DEBUG] msg is None.  Exiting function.")
+            return
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                transfer_encoding = part.get("content-transfer-encoding")
+                decode = transfer_encoding is not None
+                payload = part.get_payload(decode=decode)
+                if type(payload) == bytes:
+                    payload = payload.decode()
+                print("[DEBUG] Setting self.text to payload ...")
+                self.text = payload
+                if len(self.children) > 0:
+                    self.children[1].update(self.text)
+                break
 
 
 class MessageItem(Static):
@@ -223,8 +245,31 @@ class GMailApp(App):
         yield MainPanel()
         yield Footer()
 
-    def on_list_view_selected(self):
-        self.push_screen(self.SCREENS["msg_screen"])
+    def on_list_view_selected(self, event):
+        list_item = event.item
+        print(f"item: {list_item}")
+        uid = list_item.children[0].uid
+        print(f"[DEBUG] Selected message with UID {uid}.")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys = ON;")
+            cursor = conn.cursor()
+            cursor.execute(sql_get_message_string_by_uid_and_label, [self.label, uid])
+            row = cursor.fetchone()
+            if row is None:
+                return
+            message_string = row[0]
+            parser = Parser(policy=default_policy)
+            msg = parser.parsestr(message_string)
+            # Get plain text from message
+            screen = self.SCREENS["msg_screen"]
+            print(f"[DEBUG] Selected message subject: {msg['subject']}")
+            screen.msg = msg
+        # Stop workers
+        for worker in self.workers:
+            if worker.group == "refresh-listview":
+                worker.cancel()
+        self.push_screen(screen)
 
     def on_messages_mounted(self, message):
         # self.update_messages()
@@ -246,7 +291,10 @@ class GMailApp(App):
         Refresh the UI listview.
         """
         print("Refreshing message list view ...")
-        messages_widget = self.query_one("#messages")
+        try:
+            messages_widget = self.query_one("#messages")
+        except Exception:
+            return
         skip_rows = self.page * self.page_size
         message_threads = OrderedDict()
         with sqlite3.connect(self.db_path) as conn:
