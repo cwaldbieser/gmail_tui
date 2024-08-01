@@ -10,6 +10,7 @@ google-auth-oauthlib = "*"
 google-auth-httplib2 = "*"
 python-dateutil = "*"
 imap-tools = "*"
+html2text = "*"
 
 [dev-packages]
 textual-dev = "*"

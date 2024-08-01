@@ -8,18 +8,19 @@ from collections import OrderedDict
 from email.parser import HeaderParser, Parser
 from email.policy import default as default_policy
 
+import html2text
 import tomllib
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from imap_tools import A
 from textual import work
 from textual.app import App, ComposeResult
+from textual.containers import ScrollableContainer
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              Static)
-from textual.containers import ScrollableContainer
 
 from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
                               get_mailbox, is_starred, is_unread)
@@ -41,7 +42,7 @@ class MessageScreen(Screen):
 
     def compose(self):
         yield Header()
-        yield ScrollableContainer(Static(self.text))
+        yield ScrollableContainer(Static(self.text, id="msg-text"))
         yield Footer()
 
     def watch_msg(self, msg):
@@ -49,18 +50,33 @@ class MessageScreen(Screen):
         if msg is None:
             print("[DEBUG] msg is None.  Exiting function.")
             return
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                transfer_encoding = part.get("content-transfer-encoding")
-                decode = transfer_encoding is not None
-                payload = part.get_payload(decode=decode)
-                if type(payload) == bytes:
-                    payload = payload.decode()
-                print("[DEBUG] Setting self.text to payload ...")
-                self.text = payload
-                if len(self.children) > 0:
-                    self.children[1].update(self.text)
-                break
+        text = get_text_from_message(msg, "text/plain")
+        if text is None:
+            print("[DEBUG] No message text with content-type text/plain.")
+            text = get_text_from_message(msg, "text/html")
+            if text is None:
+                print("[DEBUG] No message text with content-type text/html.")
+                text = "No text."
+            else:
+                print("[DEBUG] Got HTML text.")
+                text = html2text.html2text(text)
+        self.text = text
+
+
+def get_text_from_message(msg, content_type="text/plain"):
+    """
+    Extract text from email message.
+    """
+    for part in msg.walk():
+        if part.get_content_type() == content_type:
+            transfer_encoding = part.get("content-transfer-encoding")
+            decode = transfer_encoding is not None
+            payload = part.get_payload(decode=decode)
+            if type(payload) == bytes:
+                payload = payload.decode()
+            text = payload
+            return text
+    return None
 
 
 class MessageItem(Static):
