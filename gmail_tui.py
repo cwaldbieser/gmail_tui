@@ -19,6 +19,7 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              Static)
+from textual.containers import ScrollableContainer
 
 from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
                               get_mailbox, is_starred, is_unread)
@@ -40,7 +41,7 @@ class MessageScreen(Screen):
 
     def compose(self):
         yield Header()
-        yield Static(self.text)
+        yield ScrollableContainer(Static(self.text))
         yield Footer()
 
     def watch_msg(self, msg):
