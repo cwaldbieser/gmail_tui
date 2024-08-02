@@ -60,6 +60,7 @@ class MessageScreen(Screen):
             else:
                 print("[DEBUG] Got HTML text.")
                 text = html2text.html2text(text)
+        text = text.lstrip()
         self.text = text
 
 
