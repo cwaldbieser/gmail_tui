@@ -1,3 +1,16 @@
+Screen {
+    layers: below above;
+}
+
+Screen * {
+    layer: below;
+}
+
+#loading {
+    align: center middle;
+    layer: above;
+}
+
 ListItem {
     background: $background;
     width: 100%;
@@ -43,6 +56,10 @@ ButtonBar {
     dock: bottom;
 }
 
+#loading {
+
+}
+
 .button {
     margin: 1;
 }
@@ -60,6 +77,10 @@ ButtonBar {
 .unread {
     color: $text;
     text-style: bold;
+}
+
+.invisible {
+    display: none;
 }
 
 .diagnostic {

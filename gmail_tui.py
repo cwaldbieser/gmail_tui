@@ -20,7 +20,7 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
-                             Static)
+                             LoadingIndicator, Static)
 
 from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
                               get_mailbox, is_starred, is_unread)
@@ -164,6 +164,14 @@ class Messages(ListView):
         Refresh the list view to match the data.
         """
         message_threads = self.message_threads
+        try:
+            loader = self.parent.query_one("#loading")
+            if len(message_threads) == 0:
+                loader.remove_class("invisible")
+            else:
+                loader.add_class("invisible")
+        except Exception as ex:
+            print(f"Could not get loader: {ex}")
         uids_should_be_in_view = set(message_threads.keys())
         uids_in_view = self.uids_in_view
         uids_to_be_removed_from_view = uids_in_view - uids_should_be_in_view
@@ -234,6 +242,7 @@ class ButtonBar(Static):
 class MessageList(Static):
     def compose(self):
         yield Messages(id="messages")
+        yield LoadingIndicator(id="loading")
         yield ButtonBar()
 
 
