@@ -141,6 +141,9 @@ def fetch_google_messages(
         )
         results = parse_fetch_google_ids_response(response)
         for uid, (gmessage_id, gthread_id) in results.items():
+            if gmessage_id is None or gthread_id is None:
+                # Just skip a message if we can't get the Google IDs.
+                continue
             msg_wrapper = messages.get(uid)
             if msg_wrapper:
                 msg_wrapper["gmessage_id"] = gmessage_id
@@ -182,7 +185,7 @@ def parse_google_ids_item(value):
     part_map = {}
     for n in range(1, len(components), 2):
         part_map[components[n - 1]] = components[n]
-    return part_map["UID"], part_map["X-GM-MSGID"], part_map["X-GM-THRID"]
+    return part_map["UID"], part_map.get("X-GM-MSGID"), part_map.get("X-GM-THRID")
 
 
 def is_unread(flags):

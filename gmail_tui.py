@@ -200,6 +200,8 @@ class Messages(ListView):
             if unread:
                 list_item.add_class("unread")
             self.append(list_item)
+        if new_index is None and len(message_threads) > 0:
+            new_index = 1
         self.index = new_index
         uids_in_view.clear()
         uids_in_view.update(set(message_threads.keys()))
@@ -254,7 +256,7 @@ class GMailApp(App):
     page_size = 50
     page = 0
     label = "INBOX"
-    imap_idle = False
+    sync_messages_flag = True
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -299,6 +301,7 @@ class GMailApp(App):
         self.db_path = pathlib.Path("~/.gmail_tui/mail.db").expanduser()
         if not os.path.exists(self.db_path):
             self.create_db()
+        self.sync_messages_flag = True
         self.sync_messages()
         self.set_interval(10, callback=self.refresh_listview, pause=False)
 
@@ -307,7 +310,6 @@ class GMailApp(App):
         """
         Refresh the UI listview.
         """
-        print("Refreshing message list view ...")
         try:
             messages_widget = self.query_one("#messages")
         except Exception:
@@ -355,7 +357,6 @@ class GMailApp(App):
             return
         self.min_uid = min(uids)
         self.max_uid = max(uids)
-        print(f"[DEBUG] message_threads has {len(message_threads)} items.")
         messages_widget.message_threads = message_threads
         self.call_from_thread(messages_widget.refresh_listview)
 
@@ -363,39 +364,47 @@ class GMailApp(App):
     def sync_messages(self):
         print(f"Starting message sync for label {self.label} ...")
         access_token = get_imap_access_token(self.config)
-        with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
-            self.db_path
-        ) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA foreign_keys = ON;")
-            cursor = conn.cursor()
-            self.insert_current_label(cursor)
-            conn.commit()
-            uid_set = set([])
-            mailbox.folder.set(self.label)
-            for gmessage_id, gthread_id, msg in fetch_google_messages(
-                mailbox, headers_only=False, limit=500
-            ):
-                uid_set.add(int(msg.uid))
-                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
-            cursor.execute(sql_all_uids_for_label, [self.label])
-            message_labels_to_delete = []
-            print(f"[DEBUG] Fetching all uids for label {self.label} ...")
-            print(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
-            for row in fetchrows(cursor, num_rows=cursor.arraysize):
-                row_id, uid = row
-                print(f"Found row with uid: {uid}")
-                if uid not in uid_set:
+        while self.sync_messages_flag:
+            try:
+                with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
+                    self.db_path
+                ) as conn:
+                    conn.execute("PRAGMA journal_mode=WAL;")
+                    conn.execute("PRAGMA foreign_keys = ON;")
+                    cursor = conn.cursor()
+                    self.insert_current_label(cursor)
+                    conn.commit()
+                    uid_set = set([])
+                    mailbox.folder.set(self.label)
+                    for gmessage_id, gthread_id, msg in fetch_google_messages(
+                        mailbox, headers_only=False, limit=500
+                    ):
+                        uid_set.add(int(msg.uid))
+                        self.insert_or_update_message(
+                            cursor, gmessage_id, gthread_id, msg
+                        )
+                    cursor.execute(sql_all_uids_for_label, [self.label])
+                    message_labels_to_delete = []
+                    print(f"[DEBUG] Fetching all uids for label {self.label} ...")
+                    print(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
+                    for row in fetchrows(cursor, num_rows=cursor.arraysize):
+                        row_id, uid = row
+                        print(f"Found row with uid: {uid}")
+                        if uid not in uid_set:
+                            print(
+                                f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
+                            )
+                            message_labels_to_delete.append(row_id)
                     print(
-                        f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
+                        f"Row IDs of message labels to delete: {message_labels_to_delete}"
                     )
-                    message_labels_to_delete.append(row_id)
-            print(f"Row IDs of message labels to delete: {message_labels_to_delete}")
-            for row_id in message_labels_to_delete:
-                cursor.execute(sql_delete_message_label, [row_id])
-            conn.commit()
-            print(f"Message sync complete for query: {self.label}")
-            self.accept_imap_updates(mailbox, conn)
+                    for row_id in message_labels_to_delete:
+                        cursor.execute(sql_delete_message_label, [row_id])
+                    conn.commit()
+                    print(f"Message sync complete for query: {self.label}")
+                    self.accept_imap_updates(mailbox, conn)
+            except Exception as ex:
+                print(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
 
     def insert_current_label(self, cursor):
         sql = """\
@@ -461,8 +470,7 @@ class GMailApp(App):
 
     def accept_imap_updates(self, mailbox, conn):
         print("Accepting IMAP IDLE updates ...")
-        self.imap_idle = True
-        while self.imap_idle:
+        while self.sync_messages_flag:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=30)
             print(f"IDLE responses: {responses}")
@@ -518,7 +526,7 @@ class GMailApp(App):
         button.focus()
 
     def action_quit(self):
-        self.imap_idle = False
+        self.sync_messages_flag = False
         self.workers.cancel_all()
         self.exit()
         print("Shutting down ...")
