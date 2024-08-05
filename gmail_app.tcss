@@ -60,6 +60,20 @@ ButtonBar {
 
 }
 
+#msg-text {
+    height: 100%;
+}
+
+#attachments {
+    width: 100%;
+    height: 15%;
+    background: $panel;
+}
+
+#attachments Button {
+    margin: 2;
+}
+
 .button {
     margin: 1;
 }

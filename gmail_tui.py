@@ -15,7 +15,7 @@ from dateutil.tz import tzlocal
 from imap_tools import A
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import ScrollableContainer
+from textual.containers import HorizontalScroll, ScrollableContainer
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
@@ -43,6 +43,10 @@ class MessageScreen(Screen):
     def compose(self):
         yield Header()
         yield ScrollableContainer(Static(self.text, id="msg-text"))
+        attachments = get_attachments(self.msg)
+        buttons = create_attachment_buttons(attachments)
+        if len(buttons) > 0:
+            yield HorizontalScroll(*buttons, id="attachments")
         yield Footer()
 
     def watch_msg(self, msg):
@@ -78,6 +82,33 @@ def get_text_from_message(msg, content_type="text/plain"):
             text = payload
             return text
     return None
+
+
+def get_attachments(msg):
+    """
+    Extract attachments from an email message.
+    Return a list of (name, binary_data)
+    """
+    attachments = []
+    if msg is None:
+        return attachments
+    for attachment in msg.iter_attachments():
+        fname = attachment.get_filename()
+        data = attachment.get_payload(decode=True)
+        attachments.append((fname, data))
+    return attachments
+
+
+def create_attachment_buttons(attachments):
+    """
+    Returns a list of attachment buttons.
+    """
+    buttons = []
+    for fname, data in attachments:
+        button = Button(label=fname)
+        button.binary_data = data
+        buttons.append(button)
+    return buttons
 
 
 class MessageItem(Static):
@@ -373,9 +404,9 @@ class GMailApp(App):
     @work(exclusive=True, group="message-sync", thread=True)
     def sync_messages(self):
         print(f"Starting message sync for label {self.label} ...")
-        access_token = get_imap_access_token(self.config)
         while self.sync_messages_flag:
             try:
+                access_token = get_imap_access_token(self.config)
                 with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
                     self.db_path
                 ) as conn:
@@ -399,7 +430,7 @@ class GMailApp(App):
                     print(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
                     for row in fetchrows(cursor, num_rows=cursor.arraysize):
                         row_id, uid = row
-                        print(f"Found row with uid: {uid}")
+                        # print(f"[DEBUG] Found row with uid: {uid}")
                         if uid not in uid_set:
                             print(
                                 f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
@@ -479,11 +510,11 @@ class GMailApp(App):
             cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
 
     def accept_imap_updates(self, mailbox, conn):
-        print("Accepting IMAP IDLE updates ...")
+        print("[DEBUG] Accepting IMAP IDLE updates ...")
         while self.sync_messages_flag:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=30)
-            print(f"IDLE responses: {responses}")
+            print(f"[DEBUG] IDLE responses: {responses}")
             cursor = conn.cursor()
             # Check for changes to currently viewed UIDs
             found_uids = set([])
