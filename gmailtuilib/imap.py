@@ -12,7 +12,7 @@ def get_mailbox(config, access_token):
     """
     Returns an authenticated imap_tools.MailBox.
     """
-    email = config["imap"]["email"]
+    email = config["oauth2"]["email"]
     with MailBox("imap.gmail.com").xoauth2(email, access_token) as mailbox:
         yield mailbox
 

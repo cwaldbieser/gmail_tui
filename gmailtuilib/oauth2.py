@@ -36,9 +36,9 @@ def get_oauth2_access_token(config):
     """
     Get a valid OAuth2 access token to be used with IMAP.
     """
-    imap_config = config.get("imap", {})
+    oauth2_config = config.get("oauth2", {})
     expired = True
-    client_id, client_secret = get_client_config(imap_config)
+    client_id, client_secret = get_client_config(oauth2_config)
     token_path = pathlib.Path("~/.gmail_tui/access-tokens.json").expanduser()
     if token_path.exists():
         with open(token_path, "r") as f:

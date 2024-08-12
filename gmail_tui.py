@@ -1,11 +1,13 @@
 #! /usr/bin/env python
 
+import datetime
 import os
 import pathlib
 import sqlite3
 import subprocess
 import tempfile
 from collections import OrderedDict
+from email.mime.text import MIMEText
 # from email.parser import BytesHeaderParser
 from email.parser import HeaderParser, Parser
 from email.policy import default as default_policy
@@ -27,6 +29,7 @@ from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
 from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
                               is_unread)
 from gmailtuilib.oauth2 import get_oauth2_access_token
+from gmailtuilib.smtp import gmail_smtp
 from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_ddl_labels_idx0, sql_ddl_message_labels,
                                 sql_ddl_messages, sql_ddl_messages_idx0,
@@ -593,15 +596,24 @@ class GMailApp(App):
     def action_compose(self):
         EDITOR = os.environ.get("EDITOR", "vim")
         print(f"EDITOR is: {EDITOR}")
-        with tempfile.NamedTemporaryFile("r+", suffix=".json", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
             tfname = tf.name
         try:
             with self.suspend():
                 subprocess.call([EDITOR, tfname])
             with open(tfname, "r") as tf:
-                pass
+                text = tf.read()
         finally:
             os.unlink(tfname)
+        access_token = get_oauth2_access_token(self.config)
+        user = self.config["oauth2"]["email"]
+        message = MIMEText(text, policy=default_policy)
+        message["From"] = user
+        recipients = self.config["test"]["recipients"]
+        message["To"] = recipients
+        message["Subject"] = f"Test - {datetime.datetime.today().isoformat()}"
+        with gmail_smtp(user, access_token) as smtp:
+            smtp.sendmail(user, recipients, message.as_string())
 
     def on_button_pressed(self, event: Button.Pressed):
         button = event.button
