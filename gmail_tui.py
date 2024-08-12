@@ -3,6 +3,8 @@
 import os
 import pathlib
 import sqlite3
+import subprocess
+import tempfile
 from collections import OrderedDict
 # from email.parser import BytesHeaderParser
 from email.parser import HeaderParser, Parser
@@ -22,8 +24,9 @@ from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
                              LoadingIndicator, Static)
 
-from gmailtuilib.imap import (fetch_google_messages, get_imap_access_token,
-                              get_mailbox, is_starred, is_unread)
+from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
+                              is_unread)
+from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_ddl_labels_idx0, sql_ddl_message_labels,
                                 sql_ddl_messages, sql_ddl_messages_idx0,
@@ -32,6 +35,25 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml)
+
+
+class AttachmentButton(Button):
+    binary_data = None
+    fname = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fname = kwargs.get("label")
+
+    def on_button_pressed(self):
+        full_path = (
+            pathlib.Path("~/Downloads")
+            .expanduser()
+            .joinpath(pathlib.Path(self.fname).name)
+        )
+        with open(full_path, "wb") as f:
+            f.write(self.binary_data)
+        print(f"Saved attachment to {full_path}.")
 
 
 class MessageScreen(Screen):
@@ -105,7 +127,7 @@ def create_attachment_buttons(attachments):
     """
     buttons = []
     for fname, data in attachments:
-        button = Button(label=fname)
+        button = AttachmentButton(label=fname)
         button.binary_data = data
         buttons.append(button)
     return buttons
@@ -291,7 +313,7 @@ class GMailApp(App):
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit"),
-        ("x", "test", "Debbugging"),
+        ("c", "compose", "Compose message"),
     ]
 
     page_size = 50
@@ -406,7 +428,7 @@ class GMailApp(App):
         print(f"Starting message sync for label {self.label} ...")
         while self.sync_messages_flag:
             try:
-                access_token = get_imap_access_token(self.config)
+                access_token = get_oauth2_access_token(self.config)
                 with get_mailbox(self.config, access_token) as mailbox, sqlite3.connect(
                     self.db_path
                 ) as conn:
@@ -562,15 +584,24 @@ class GMailApp(App):
         """An action to toggle dark mode."""
         self.dark = not self.dark
 
-    def action_test(self):
-        button = self.query_one("#btn-forwards")
-        button.focus()
-
     def action_quit(self):
         self.sync_messages_flag = False
         self.workers.cancel_all()
         self.exit()
         print("Shutting down ...")
+
+    def action_compose(self):
+        EDITOR = os.environ.get("EDITOR", "vim")
+        print(f"EDITOR is: {EDITOR}")
+        with tempfile.NamedTemporaryFile("r+", suffix=".json", delete=False) as tf:
+            tfname = tf.name
+        try:
+            with self.suspend():
+                subprocess.call([EDITOR, tfname])
+            with open(tfname, "r") as tf:
+                pass
+        finally:
+            os.unlink(tfname)
 
     def on_button_pressed(self, event: Button.Pressed):
         button = event.button
