@@ -11,6 +11,7 @@ google-auth-httplib2 = "*"
 python-dateutil = "*"
 imap-tools = "*"
 html2text = "*"
+logzero = "*"
 
 [dev-packages]
 textual-dev = "*"

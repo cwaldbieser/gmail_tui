@@ -1,5 +1,4 @@
 #! /usr/bin/env python
-
 import os
 import pathlib
 import sqlite3
@@ -12,14 +11,17 @@ from email.parser import HeaderParser, Parser
 from email.policy import default as default_policy
 
 import html2text
+import logzero
 import tomllib
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from imap_tools import A
+from logzero import logger
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import (Horizontal, HorizontalScroll,
                                 ScrollableContainer)
+from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
@@ -38,6 +40,15 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml)
+
+handlers = logzero.logger.handlers[:]
+for handler in handlers:
+    logzero.logger.removeHandler(handler)
+logzero.logger.addHandler(TextualHandler())
+# logging.basicConfig(
+#     level="NOTSET",
+#     handlers=[TextualHandler(stderr=False)],
+# )
 
 
 class HeadersScreen(Screen):
@@ -87,7 +98,7 @@ class AttachmentButton(Button):
         )
         with open(full_path, "wb") as f:
             f.write(self.binary_data)
-        self.app.log(f"Saved attachment to {full_path}.")
+        logger.debug(f"Saved attachment to {full_path}.")
 
 
 class MessageScreen(Screen):
@@ -109,19 +120,19 @@ class MessageScreen(Screen):
         yield Footer()
 
     def watch_msg(self, msg):
-        self.app.log("[DEBUG] Entered watch_msg().")
+        logger.debug("Entered watch_msg().")
         if msg is None:
-            self.app.log("[DEBUG] msg is None.  Exiting function.")
+            logger.debug("msg is None.  Exiting function.")
             return
         text = get_text_from_message(msg, "text/plain")
         if text is None:
-            self.app.log("[DEBUG] No message text with content-type text/plain.")
+            logger.debug("No message text with content-type text/plain.")
             text = get_text_from_message(msg, "text/html")
             if text is None:
-                self.app.log("[DEBUG] No message text with content-type text/html.")
+                logger.debug("No message text with content-type text/html.")
                 text = "No text."
             else:
-                self.app.log("[DEBUG] Got HTML text.")
+                logger.debug("Got HTML text.")
                 text = html2text.html2text(text)
         text = text.lstrip()
         self.text = text
@@ -141,13 +152,15 @@ class MessageScreen(Screen):
             if headers is None:
                 return
             EDITOR = os.environ.get("EDITOR", "vim")
-            self.app.log(f"EDITOR is: {EDITOR}")
+            logger.debug(f"EDITOR is: {EDITOR}")
             with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
                 tfname = tf.name
                 tf.write(self.text)
             try:
                 with self.app.suspend():
+                    logzero.loglevel(logzero.CRITICAL)
                     subprocess.call([EDITOR, tfname])
+                logzero.loglevel(logzero.DEBUG)
                 with open(tfname, "r") as tf:
                     text = tf.read()
             finally:
@@ -300,7 +313,7 @@ class Messages(ListView):
             else:
                 loader.add_class("invisible")
         except Exception as ex:
-            self.app.log(f"Could not get loader: {ex}")
+            logger.debug(f"Could not get loader: {ex}")
         uids_should_be_in_view = set(message_threads.keys())
         uids_in_view = self.uids_in_view
         uids_to_be_removed_from_view = uids_in_view - uids_should_be_in_view
@@ -407,9 +420,9 @@ class GMailApp(App):
 
     def on_list_view_selected(self, event):
         list_item = event.item
-        self.log(f"item: {list_item}")
+        logger.debug(f"item: {list_item}")
         uid = list_item.children[0].uid
-        self.log(f"[DEBUG] Selected message with UID {uid}.")
+        logger.debug(f"Selected message with UID {uid}.")
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
@@ -423,7 +436,7 @@ class GMailApp(App):
             msg = parser.parsestr(message_string)
             # Get plain text from message
             screen = self.SCREENS["msg_screen"]
-            self.log(f"[DEBUG] Selected message subject: {msg['subject']}")
+            logger.debug(f"Selected message subject: {msg['subject']}")
             screen.msg = msg
         # Stop workers
         for worker in self.workers:
@@ -499,7 +512,7 @@ class GMailApp(App):
 
     @work(exclusive=True, group="message-sync", thread=True)
     def sync_messages(self):
-        self.log(f"Starting message sync for label {self.label} ...")
+        logger.debug(f"Starting message sync for label {self.label} ...")
         while self.sync_messages_flag:
             try:
                 access_token = get_oauth2_access_token(self.config)
@@ -522,25 +535,25 @@ class GMailApp(App):
                         )
                     cursor.execute(sql_all_uids_for_label, [self.label])
                     message_labels_to_delete = []
-                    self.log(f"[DEBUG] Fetching all uids for label {self.label} ...")
-                    self.log(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
+                    logger.debug(f"Fetching all uids for label {self.label} ...")
+                    logger.debug(f"Found uid set includes: {sorted(list(uid_set))}")
                     for row in fetchrows(cursor, num_rows=cursor.arraysize):
                         row_id, uid = row
                         if uid not in uid_set:
-                            self.log(
-                                f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
+                            logger.debug(
+                                f"UID {uid} to be deleted from label {self.label} ..."
                             )
                             message_labels_to_delete.append(row_id)
-                    self.log(
+                    logger.debug(
                         f"Row IDs of message labels to delete: {message_labels_to_delete}"
                     )
                     for row_id in message_labels_to_delete:
                         cursor.execute(sql_delete_message_label, [row_id])
                     conn.commit()
-                    self.log(f"Message sync complete for query: {self.label}")
+                    logger.debug(f"Message sync complete for query: {self.label}")
                     self.accept_imap_updates(mailbox, conn)
             except Exception as ex:
-                self.log(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
+                logger.debug(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
 
     def insert_current_label(self, cursor):
         sql = """\
@@ -561,12 +574,12 @@ class GMailApp(App):
         Check for messages that have been removed from the current label with UID
         between self.min_uid and self.max_uid.
         """
-        self.log("[DEBUG] Checking for deleted messages ...")
+        logger.debug("Checking for deleted messages ...")
         min_uid = self.min_uid
         max_uid = self.max_uid
         if min_uid is None or max_uid is None:
             return
-        self.log(f"min UID: {min_uid}, max UID: {max_uid}")
+        logger.debug(f"min UID: {min_uid}, max UID: {max_uid}")
         cursor.execute(sql_get_message_labels_in_uid_range, [min_uid, max_uid])
         rows_to_delete = []
         for row in fetchrows(cursor, cursor.arraysize):
@@ -605,11 +618,11 @@ class GMailApp(App):
             cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
 
     def accept_imap_updates(self, mailbox, conn):
-        self.log("[DEBUG] Accepting IMAP IDLE updates ...")
+        logger.debug("Accepting IMAP IDLE updates ...")
         while self.sync_messages_flag:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=30)
-            self.log(f"[DEBUG] IDLE responses: {responses}")
+            logger.debug(f"IDLE responses: {responses}")
             cursor = conn.cursor()
             # Check for changes to currently viewed UIDs
             found_uids = set([])
@@ -631,7 +644,7 @@ class GMailApp(App):
                 self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
             cursor.close()
             conn.commit()
-        self.log("No longer accepting IMAP IDLE updates.")
+        logger.debug("No longer accepting IMAP IDLE updates.")
 
     def create_db(self):
         """
@@ -649,7 +662,7 @@ class GMailApp(App):
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             for sql in ddl_statements:
-                self.log(f"Executing DDL: {sql}")
+                logger.debug(f"Executing DDL: {sql}")
                 cursor.execute(sql)
             conn.commit()
 
@@ -661,7 +674,7 @@ class GMailApp(App):
         self.sync_messages_flag = False
         self.workers.cancel_all()
         self.exit()
-        self.log("Shutting down ...")
+        logger.debug("Shutting down ...")
 
     def action_compose(self):
         screen = self.SCREENS["headers_screen"]
@@ -670,12 +683,14 @@ class GMailApp(App):
             if headers is None:
                 return
             EDITOR = os.environ.get("EDITOR", "vim")
-            self.log(f"EDITOR is: {EDITOR}")
+            logger.debug(f"EDITOR is: {EDITOR}")
             with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
                 tfname = tf.name
             try:
                 with self.suspend():
+                    logzero.loglevel(logzero.CRITICAL)
                     subprocess.call([EDITOR, tfname])
+                logzero.loglevel(logzero.DEBUG)
                 with open(tfname, "r") as tf:
                     text = tf.read()
             finally:
