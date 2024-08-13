@@ -45,29 +45,29 @@ handlers = logzero.logger.handlers[:]
 for handler in handlers:
     logzero.logger.removeHandler(handler)
 logzero.logger.addHandler(TextualHandler())
-# logging.basicConfig(
-#     level="NOTSET",
-#     handlers=[TextualHandler(stderr=False)],
-# )
 
 
 class HeadersScreen(Screen):
 
     BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
 
-    recipients = reactive("")
-    subject = reactive("")
-
     def compose(self):
         with Horizontal(classes="headers-row"):
             yield Label("To:", classes="headers-label")
-            yield Input(value=self.recipients, id="headers-to")
+            yield Input(value="", id="headers-to")
         with Horizontal(classes="headers-row"):
             yield Label("Subject:", classes="headers-label")
-            yield Input(value=self.subject, id="headers-subject")
+            yield Input(value="", id="headers-subject")
         with Horizontal(id="headers-buttonbar"):
             yield Button("OK", id="headers-ok")
             yield Button("Cancel", id="headers-cancel")
+
+    def set_fields(self, recipients="", subject=""):
+        try:
+            self.query_one("#headers-to").value = recipients
+            self.query_one("#headers-subject").value = subject
+        except Exception as ex:
+            logger.exception(ex)
 
     def on_button_pressed(self, event):
         if event.button.id == "headers-ok":
@@ -145,17 +145,17 @@ class MessageScreen(Screen):
             subject = f"Re: {orig_subject}"
         else:
             subject = orig_subject
-        screen.subject = subject
-        screen.recipients = orig_sender
+        screen.set_fields(subject=subject, recipients=orig_sender)
 
         def compose_message(headers):
             if headers is None:
                 return
             EDITOR = os.environ.get("EDITOR", "vim")
             logger.debug(f"EDITOR is: {EDITOR}")
+            reply_text = "\n".join(f">{line}" for line in self.text.split("\n"))
             with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
                 tfname = tf.name
-                tf.write(self.text)
+                tf.write(reply_text)
             try:
                 with self.app.suspend():
                     logzero.loglevel(logzero.CRITICAL)
@@ -678,6 +678,8 @@ class GMailApp(App):
 
     def action_compose(self):
         screen = self.SCREENS["headers_screen"]
+        screen.set_fields()
+        logger.debug("Blanked headers.")
 
         def compose_message(headers):
             if headers is None:
