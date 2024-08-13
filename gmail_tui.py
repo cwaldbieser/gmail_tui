@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 
-import datetime
 import os
 import pathlib
 import sqlite3
@@ -45,13 +44,16 @@ class HeadersScreen(Screen):
 
     BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
 
+    recipients = reactive("")
+    subject = reactive("")
+
     def compose(self):
         with Horizontal(classes="headers-row"):
             yield Label("To:", classes="headers-label")
-            yield Input(id="headers-to")
+            yield Input(value=self.recipients, id="headers-to")
         with Horizontal(classes="headers-row"):
             yield Label("Subject:", classes="headers-label")
-            yield Input(id="headers-subject")
+            yield Input(value=self.subject, id="headers-subject")
         with Horizontal(id="headers-buttonbar"):
             yield Button("OK", id="headers-ok")
             yield Button("Cancel", id="headers-cancel")
@@ -85,11 +87,14 @@ class AttachmentButton(Button):
         )
         with open(full_path, "wb") as f:
             f.write(self.binary_data)
-        print(f"Saved attachment to {full_path}.")
+        self.app.log(f"Saved attachment to {full_path}.")
 
 
 class MessageScreen(Screen):
-    BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
+    BINDINGS = [
+        ("escape", "app.pop_screen", "Pop screen"),
+        ("r", "reply", "Reply to message."),
+    ]
 
     msg = reactive(None, init=False, recompose=True)
     text = reactive("No text.")
@@ -104,22 +109,60 @@ class MessageScreen(Screen):
         yield Footer()
 
     def watch_msg(self, msg):
-        print("[DEBUG] Entered watch_msg().")
+        self.app.log("[DEBUG] Entered watch_msg().")
         if msg is None:
-            print("[DEBUG] msg is None.  Exiting function.")
+            self.app.log("[DEBUG] msg is None.  Exiting function.")
             return
         text = get_text_from_message(msg, "text/plain")
         if text is None:
-            print("[DEBUG] No message text with content-type text/plain.")
+            self.app.log("[DEBUG] No message text with content-type text/plain.")
             text = get_text_from_message(msg, "text/html")
             if text is None:
-                print("[DEBUG] No message text with content-type text/html.")
+                self.app.log("[DEBUG] No message text with content-type text/html.")
                 text = "No text."
             else:
-                print("[DEBUG] Got HTML text.")
+                self.app.log("[DEBUG] Got HTML text.")
                 text = html2text.html2text(text)
         text = text.lstrip()
         self.text = text
+
+    def action_reply(self):
+        screen = self.app.SCREENS["headers_screen"]
+        orig_sender = self.msg["From"]
+        orig_subject = self.msg["Subject"]
+        if not orig_subject.startswith("Re:"):
+            subject = f"Re: {orig_subject}"
+        else:
+            subject = orig_subject
+        screen.subject = subject
+        screen.recipients = orig_sender
+
+        def compose_message(headers):
+            if headers is None:
+                return
+            EDITOR = os.environ.get("EDITOR", "vim")
+            self.app.log(f"EDITOR is: {EDITOR}")
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
+                tfname = tf.name
+                tf.write(self.text)
+            try:
+                with self.app.suspend():
+                    subprocess.call([EDITOR, tfname])
+                with open(tfname, "r") as tf:
+                    text = tf.read()
+            finally:
+                os.unlink(tfname)
+            access_token = get_oauth2_access_token(self.app.config)
+            user = self.app.config["oauth2"]["email"]
+            message = MIMEText(text, policy=default_policy)
+            message["From"] = user
+            recipients = headers["To"]
+            message["To"] = recipients
+            message["Subject"] = headers["Subject"]
+            with gmail_smtp(user, access_token) as smtp:
+                smtp.sendmail(user, recipients, message.as_string())
+
+        self.app.push_screen(screen, compose_message)
 
 
 def get_text_from_message(msg, content_type="text/plain"):
@@ -257,7 +300,7 @@ class Messages(ListView):
             else:
                 loader.add_class("invisible")
         except Exception as ex:
-            print(f"Could not get loader: {ex}")
+            self.app.log(f"Could not get loader: {ex}")
         uids_should_be_in_view = set(message_threads.keys())
         uids_in_view = self.uids_in_view
         uids_to_be_removed_from_view = uids_in_view - uids_should_be_in_view
@@ -364,9 +407,9 @@ class GMailApp(App):
 
     def on_list_view_selected(self, event):
         list_item = event.item
-        print(f"item: {list_item}")
+        self.log(f"item: {list_item}")
         uid = list_item.children[0].uid
-        print(f"[DEBUG] Selected message with UID {uid}.")
+        self.log(f"[DEBUG] Selected message with UID {uid}.")
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
@@ -380,7 +423,7 @@ class GMailApp(App):
             msg = parser.parsestr(message_string)
             # Get plain text from message
             screen = self.SCREENS["msg_screen"]
-            print(f"[DEBUG] Selected message subject: {msg['subject']}")
+            self.log(f"[DEBUG] Selected message subject: {msg['subject']}")
             screen.msg = msg
         # Stop workers
         for worker in self.workers:
@@ -456,7 +499,7 @@ class GMailApp(App):
 
     @work(exclusive=True, group="message-sync", thread=True)
     def sync_messages(self):
-        print(f"Starting message sync for label {self.label} ...")
+        self.log(f"Starting message sync for label {self.label} ...")
         while self.sync_messages_flag:
             try:
                 access_token = get_oauth2_access_token(self.config)
@@ -479,26 +522,25 @@ class GMailApp(App):
                         )
                     cursor.execute(sql_all_uids_for_label, [self.label])
                     message_labels_to_delete = []
-                    print(f"[DEBUG] Fetching all uids for label {self.label} ...")
-                    print(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
+                    self.log(f"[DEBUG] Fetching all uids for label {self.label} ...")
+                    self.log(f"[DEBUG] Found uid set includes: {sorted(list(uid_set))}")
                     for row in fetchrows(cursor, num_rows=cursor.arraysize):
                         row_id, uid = row
-                        # print(f"[DEBUG] Found row with uid: {uid}")
                         if uid not in uid_set:
-                            print(
+                            self.log(
                                 f"[DEBUG] UID {uid} to be deleted from label {self.label} ..."
                             )
                             message_labels_to_delete.append(row_id)
-                    print(
+                    self.log(
                         f"Row IDs of message labels to delete: {message_labels_to_delete}"
                     )
                     for row_id in message_labels_to_delete:
                         cursor.execute(sql_delete_message_label, [row_id])
                     conn.commit()
-                    print(f"Message sync complete for query: {self.label}")
+                    self.log(f"Message sync complete for query: {self.label}")
                     self.accept_imap_updates(mailbox, conn)
             except Exception as ex:
-                print(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
+                self.log(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
 
     def insert_current_label(self, cursor):
         sql = """\
@@ -519,12 +561,12 @@ class GMailApp(App):
         Check for messages that have been removed from the current label with UID
         between self.min_uid and self.max_uid.
         """
-        print("[DEBUG] Checking for deleted messages ...")
+        self.log("[DEBUG] Checking for deleted messages ...")
         min_uid = self.min_uid
         max_uid = self.max_uid
         if min_uid is None or max_uid is None:
             return
-        print(f"min UID: {min_uid}, max UID: {max_uid}")
+        self.log(f"min UID: {min_uid}, max UID: {max_uid}")
         cursor.execute(sql_get_message_labels_in_uid_range, [min_uid, max_uid])
         rows_to_delete = []
         for row in fetchrows(cursor, cursor.arraysize):
@@ -563,11 +605,11 @@ class GMailApp(App):
             cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
 
     def accept_imap_updates(self, mailbox, conn):
-        print("[DEBUG] Accepting IMAP IDLE updates ...")
+        self.log("[DEBUG] Accepting IMAP IDLE updates ...")
         while self.sync_messages_flag:
             with mailbox.idle as idle:
                 responses = idle.poll(timeout=30)
-            print(f"[DEBUG] IDLE responses: {responses}")
+            self.log(f"[DEBUG] IDLE responses: {responses}")
             cursor = conn.cursor()
             # Check for changes to currently viewed UIDs
             found_uids = set([])
@@ -589,7 +631,7 @@ class GMailApp(App):
                 self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
             cursor.close()
             conn.commit()
-        print("No longer accepting IMAP IDLE updates.")
+        self.log("No longer accepting IMAP IDLE updates.")
 
     def create_db(self):
         """
@@ -607,7 +649,7 @@ class GMailApp(App):
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             for sql in ddl_statements:
-                print(f"Executing DDL: {sql}")
+                self.log(f"Executing DDL: {sql}")
                 cursor.execute(sql)
             conn.commit()
 
@@ -619,7 +661,7 @@ class GMailApp(App):
         self.sync_messages_flag = False
         self.workers.cancel_all()
         self.exit()
-        print("Shutting down ...")
+        self.log("Shutting down ...")
 
     def action_compose(self):
         screen = self.SCREENS["headers_screen"]
@@ -628,7 +670,7 @@ class GMailApp(App):
             if headers is None:
                 return
             EDITOR = os.environ.get("EDITOR", "vim")
-            print(f"EDITOR is: {EDITOR}")
+            self.log(f"EDITOR is: {EDITOR}")
             with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
                 tfname = tf.name
             try:
