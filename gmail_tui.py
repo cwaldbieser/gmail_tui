@@ -19,12 +19,13 @@ from dateutil.tz import tzlocal
 from imap_tools import A
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import HorizontalScroll, ScrollableContainer
+from textual.containers import (Horizontal, HorizontalScroll,
+                                ScrollableContainer)
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import (Button, Footer, Header, Label, ListItem, ListView,
-                             LoadingIndicator, Static)
+from textual.widgets import (Button, Footer, Header, Input, Label, ListItem,
+                             ListView, LoadingIndicator, Static)
 
 from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
                               is_unread)
@@ -38,6 +39,34 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml)
+
+
+class HeadersScreen(Screen):
+
+    BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
+
+    def compose(self):
+        with Horizontal(classes="headers-row"):
+            yield Label("To:", classes="headers-label")
+            yield Input(id="headers-to")
+        with Horizontal(classes="headers-row"):
+            yield Label("Subject:", classes="headers-label")
+            yield Input(id="headers-subject")
+        with Horizontal(id="headers-buttonbar"):
+            yield Button("OK", id="headers-ok")
+            yield Button("Cancel", id="headers-cancel")
+
+    def on_button_pressed(self, event):
+        if event.button.id == "headers-ok":
+            headers = {}
+            to_input = self.query_one("#headers-to")
+            recipients = [recipient.strip() for recipient in to_input.value.split(",")]
+            headers["To"] = recipients
+            subject = self.query_one("#headers-subject").value
+            headers["Subject"] = subject
+            self.dismiss(headers)
+        else:
+            self.dismiss(None)
 
 
 class AttachmentButton(Button):
@@ -311,7 +340,10 @@ class MainPanel(Static):
 class GMailApp(App):
     """A Textual app to manage stopwatches."""
 
-    SCREENS = {"msg_screen": MessageScreen()}
+    SCREENS = {
+        "msg_screen": MessageScreen(),
+        "headers_screen": HeadersScreen(),
+    }
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
@@ -590,26 +622,33 @@ class GMailApp(App):
         print("Shutting down ...")
 
     def action_compose(self):
-        EDITOR = os.environ.get("EDITOR", "vim")
-        print(f"EDITOR is: {EDITOR}")
-        with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
-            tfname = tf.name
-        try:
-            with self.suspend():
-                subprocess.call([EDITOR, tfname])
-            with open(tfname, "r") as tf:
-                text = tf.read()
-        finally:
-            os.unlink(tfname)
-        access_token = get_oauth2_access_token(self.config)
-        user = self.config["oauth2"]["email"]
-        message = MIMEText(text, policy=default_policy)
-        message["From"] = user
-        recipients = self.config["test"]["recipients"]
-        message["To"] = recipients
-        message["Subject"] = f"Test - {datetime.datetime.today().isoformat()}"
-        with gmail_smtp(user, access_token) as smtp:
-            smtp.sendmail(user, recipients, message.as_string())
+        screen = self.SCREENS["headers_screen"]
+
+        def compose_message(headers):
+            if headers is None:
+                return
+            EDITOR = os.environ.get("EDITOR", "vim")
+            print(f"EDITOR is: {EDITOR}")
+            with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
+                tfname = tf.name
+            try:
+                with self.suspend():
+                    subprocess.call([EDITOR, tfname])
+                with open(tfname, "r") as tf:
+                    text = tf.read()
+            finally:
+                os.unlink(tfname)
+            access_token = get_oauth2_access_token(self.config)
+            user = self.config["oauth2"]["email"]
+            message = MIMEText(text, policy=default_policy)
+            message["From"] = user
+            recipients = headers["To"]
+            message["To"] = recipients
+            message["Subject"] = headers["Subject"]
+            with gmail_smtp(user, access_token) as smtp:
+                smtp.sendmail(user, recipients, message.as_string())
+
+        self.push_screen(screen, compose_message)
 
     def on_button_pressed(self, event: Button.Pressed):
         button = event.button

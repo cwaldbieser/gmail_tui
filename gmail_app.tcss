@@ -74,6 +74,29 @@ ButtonBar {
     margin: 2;
 }
 
+#headers-buttonbar {
+    height: 3fr;
+    align: center top;
+}
+
+#headers-buttonbar Button {
+    margin: 1;
+}
+
+.headers-row {
+    height: 1fr;
+}
+
+.headers-row Input {
+    width: 90%;
+}
+
+.headers-label {
+    border: solid $primary-background-lighten-3;
+    align: center middle;
+    width: 10%;
+}
+
 .button {
     margin: 1;
 }
