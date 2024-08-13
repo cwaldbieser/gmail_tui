@@ -356,10 +356,6 @@ class GMailApp(App):
                 worker.cancel()
         self.push_screen(screen)
 
-    def on_messages_mounted(self, message):
-        # self.update_messages()
-        pass
-
     def on_mount(self):
         with open(pathlib.Path("~/.gmail_tui/conf.toml").expanduser(), "rb") as f:
             self.config = tomllib.load(f)
