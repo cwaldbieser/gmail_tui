@@ -1,10 +1,11 @@
 import contextlib
 from collections import OrderedDict
-from io import StringIO
 from itertools import islice
 
 from imap_tools import MailBox
 from imap_tools.consts import MailMessageFlags
+
+from gmailtuilib.parsers import imap_gmail_uid_fetch_response_parser
 
 
 @contextlib.contextmanager
@@ -51,10 +52,16 @@ def fetch_google_messages(
         min_uid = min(uids)
         client = mailbox.client
         response = client.uid(
-            "fetch", f"{min_uid}:{max_uid}", "(X-GM-MSGID X-GM-THRID)"
+            "fetch", f"{min_uid}:{max_uid}", "(X-GM-MSGID X-GM-THRID X-GM-LABELS)"
         )
         results = parse_fetch_google_ids_response(response)
-        for uid, (gmessage_id, gthread_id) in results.items():
+        for fields in results:
+            uid = fields["UID"]
+            gmessage_id = fields["X-GM-MSGID"]
+            gthread_id = fields["X-GM-THRID"]
+            glabels = fields["X-GM-LABELS"]
+            if glabels is None:
+                glabels = []
             if gmessage_id is None or gthread_id is None:
                 # Just skip a message if we can't get the Google IDs.
                 continue
@@ -62,11 +69,13 @@ def fetch_google_messages(
             if msg_wrapper:
                 msg_wrapper["gmessage_id"] = gmessage_id
                 msg_wrapper["gthread_id"] = gthread_id
+                msg_wrapper["glabels"] = glabels
         for msg_wrapper in messages.values():
             msg = msg_wrapper["msg"]
             gmessage_id = msg_wrapper.get("gmessage_id")
             gthread_id = msg_wrapper.get("gthread_id")
-            yield gmessage_id, gthread_id, msg
+            glabels = msg_wrapper.get("glabels", [])
+            yield gmessage_id, gthread_id, glabels, msg
 
 
 def parse_fetch_google_ids_response(response):
@@ -76,30 +85,21 @@ def parse_fetch_google_ids_response(response):
     status = response[0]
     if status != "OK":
         return []
-    pieces = response[1]
-    buffer = StringIO()
-    results = {}
-    for piece in pieces:
-        buffer.write(piece.decode())
-        value = buffer.getvalue()
-        if value.endswith(")"):
-            uid, gmessage_id, gthread_id = parse_google_ids_item(value)
-            results[uid] = (gmessage_id, gthread_id)
-            buffer.seek(0)
-            buffer.truncate()
-    return results
-
-
-def parse_google_ids_item(value):
-    """
-    Parse an individual fetch result for Google message and thread IDs.
-    """
-    parts = value.split(" ", 1)
-    components = parts[1][1:-1].split()
-    part_map = {}
-    for n in range(1, len(components), 2):
-        part_map[components[n - 1]] = components[n]
-    return part_map["UID"], part_map.get("X-GM-MSGID"), part_map.get("X-GM-THRID")
+    lines = response[1]
+    for ascii_7bit_line in lines:
+        line = ascii_7bit_line.decode()
+        data = imap_gmail_uid_fetch_response_parser(line).line()
+        msg_number, response_parts = data
+        fields = {"MESSAGE_NUMBER": msg_number}
+        names = ["X-GM-THRID", "X-GM-MSGID", "X-GM-LABELS", "UID"]
+        for name in names:
+            pos = response_parts.index(name)
+            if pos == -1:
+                value = None
+            else:
+                value = response_parts[pos]
+            fields[name] = value
+        yield fields
 
 
 def is_unread(flags):

@@ -526,7 +526,7 @@ class GMailApp(App):
                     conn.commit()
                     uid_set = set([])
                     mailbox.folder.set(self.label)
-                    for gmessage_id, gthread_id, msg in fetch_google_messages(
+                    for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                         mailbox, headers_only=False, limit=500
                     ):
                         uid_set.add(int(msg.uid))
@@ -626,7 +626,7 @@ class GMailApp(App):
             cursor = conn.cursor()
             # Check for changes to currently viewed UIDs
             found_uids = set([])
-            for gmessage_id, gthread_id, msg in fetch_google_messages(
+            for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox,
                 headers_only=False,
                 limit=500,
@@ -636,7 +636,7 @@ class GMailApp(App):
             # Check for deleted messages.
             self.check_for_deleted_messages(cursor, found_uids)
             # Check for new (unseen) messages.
-            for gmessage_id, gthread_id, msg in fetch_google_messages(
+            for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox,
                 criteria=A(seen=False),
                 headers_only=False,

@@ -12,6 +12,7 @@ python-dateutil = "*"
 imap-tools = "*"
 html2text = "*"
 logzero = "*"
+parsley = "*"
 
 [dev-packages]
 textual-dev = "*"
