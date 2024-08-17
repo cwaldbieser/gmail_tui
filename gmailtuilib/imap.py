@@ -107,6 +107,8 @@ def compress_uids(all_uids, selected_uids):
     Compress a sorted selection of UIDs into ranges given the complete sorted
     sequence of UIDs.
     """
+    if len(selected_uids) == 0:
+        return []
     results = []
     selected_uids = selected_uids[:]
     range_max_uid = selected_uids.pop()

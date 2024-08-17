@@ -4,6 +4,7 @@ import pathlib
 import sqlite3
 import subprocess
 import tempfile
+import tomllib
 from collections import OrderedDict
 from email.mime.text import MIMEText
 # from email.parser import BytesHeaderParser
@@ -12,7 +13,6 @@ from email.policy import default as default_policy
 
 import html2text
 import logzero
-import tomllib
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from imap_tools import A
@@ -555,16 +555,17 @@ class GMailApp(App):
                     uncached_message_uids.sort()
                     logger.debug(f"UNCACHED UIDS: {uncached_message_uids}")
                     uid_seq = compress_uids(all_uids, uncached_message_uids)
-                    uid_criteria = uid_seq_to_criteria(uid_seq)
-                    for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
-                        mailbox,
-                        criteria=A(uid=uid_criteria),
-                        headers_only=False,
-                        limit=500,
-                    ):
-                        self.insert_or_update_message(
-                            cursor, gmessage_id, gthread_id, msg
-                        )
+                    if len(uid_seq) > 0:
+                        uid_criteria = uid_seq_to_criteria(uid_seq)
+                        for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
+                            mailbox,
+                            criteria=A(uid=uid_criteria),
+                            headers_only=False,
+                            limit=500,
+                        ):
+                            self.insert_or_update_message(
+                                cursor, gmessage_id, gthread_id, glabels, msg
+                            )
                     conn.commit()
                     logger.debug(f"Message sync complete for query: {self.label}")
                     self.accept_imap_updates(mailbox, conn)
@@ -632,7 +633,7 @@ class GMailApp(App):
         for row_id in rows_to_delete:
             cursor.execute(sql_delete_message_label, [row_id])
 
-    def insert_or_update_message(self, cursor, gmessage_id, gthread_id, msg):
+    def insert_or_update_message(self, cursor, gmessage_id, gthread_id, glabels, msg):
         """
         `msg` must be an imap_tools.message.Message.
         """
@@ -675,10 +676,12 @@ class GMailApp(App):
             found_uids = set([])
             for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox,
-                headers_only=False,
+                headers_only=True,
                 limit=500,
             ):
-                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                self.insert_or_update_message(
+                    cursor, gmessage_id, gthread_id, glabels, msg
+                )
                 found_uids.add(int(msg.uid))
             # Check for deleted messages.
             self.check_for_deleted_messages(cursor, found_uids)
@@ -688,7 +691,9 @@ class GMailApp(App):
                 criteria=A(seen=False),
                 headers_only=False,
             ):
-                self.insert_or_update_message(cursor, gmessage_id, gthread_id, msg)
+                self.insert_or_update_message(
+                    cursor, gmessage_id, gthread_id, glabels, msg
+                )
             cursor.close()
             conn.commit()
         logger.debug("No longer accepting IMAP IDLE updates.")
