@@ -125,6 +125,10 @@ sql_fetch_msgs_for_label = """\
     ORDER BY uid DESC
     """
 
+sql_message_exists = """\
+    SELECT gmessage_id FROM messages WHERE gmessage_id = ?
+    """
+
 sql_ddl_messages = """\
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY,

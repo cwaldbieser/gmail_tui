@@ -28,8 +28,9 @@ from textual.screen import Screen
 from textual.widgets import (Button, Footer, Header, Input, Label, ListItem,
                              ListView, LoadingIndicator, Static)
 
-from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
-                              is_unread)
+from gmailtuilib.imap import (compress_uids, fetch_google_messages,
+                              get_mailbox, is_starred, is_unread,
+                              uid_seq_to_criteria)
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.smtp import gmail_smtp
 from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
@@ -39,7 +40,7 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_fetch_msgs_for_label, sql_find_ml,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
-                                sql_insert_ml)
+                                sql_insert_ml, sql_message_exists)
 
 handlers = logzero.logger.handlers[:]
 for handler in handlers:
@@ -525,18 +526,25 @@ class GMailApp(App):
                     self.insert_current_label(cursor)
                     conn.commit()
                     uid_set = set([])
+                    uncached_message_uids = set([])
                     mailbox.folder.set(self.label)
+                    # Get the set of messages that are in the mailbox.
                     for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
-                        mailbox, headers_only=False, limit=500
+                        mailbox, headers_only=True, limit=500
                     ):
+                        # Record message UID
                         uid_set.add(int(msg.uid))
-                        self.insert_or_update_message(
-                            cursor, gmessage_id, gthread_id, msg
-                        )
+                        # Update any cached messages
+                        # Record any uncached messages that should be cached.
+                        if self.is_message_cached(cursor, gmessage_id):
+                            self.update_message(
+                                cursor, gmessage_id, gthread_id, glabels, msg
+                            )
+                        else:
+                            uncached_message_uids.add(int(msg.uid))
+                    # Remove any cached labels that are no longer applied.
                     cursor.execute(sql_all_uids_for_label, [self.label])
                     message_labels_to_delete = []
-                    logger.debug(f"Fetching all uids for label {self.label} ...")
-                    logger.debug(f"Found uid set includes: {sorted(list(uid_set))}")
                     for row in fetchrows(cursor, num_rows=cursor.arraysize):
                         row_id, uid = row
                         if uid not in uid_set:
@@ -549,11 +557,41 @@ class GMailApp(App):
                     )
                     for row_id in message_labels_to_delete:
                         cursor.execute(sql_delete_message_label, [row_id])
+                    # Download and cache any uncached messages.
+                    all_uids = list(uid_set)
+                    all_uids.sort()
+                    logger.debug(f"ALL UIDS: {all_uids}")
+                    uncached_message_uids = list(uncached_message_uids)
+                    uncached_message_uids.sort()
+                    logger.debug(f"UNCACHED UIDS: {uncached_message_uids}")
+                    uid_seq = compress_uids(all_uids, uncached_message_uids)
+                    uid_criteria = uid_seq_to_criteria(uid_seq)
+                    for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
+                        mailbox,
+                        criteria=A(uid=uid_criteria),
+                        headers_only=False,
+                        limit=500,
+                    ):
+                        self.insert_or_update_message(
+                            cursor, gmessage_id, gthread_id, msg
+                        )
                     conn.commit()
                     logger.debug(f"Message sync complete for query: {self.label}")
                     self.accept_imap_updates(mailbox, conn)
             except Exception as ex:
                 logger.debug(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
+
+    def is_message_cached(self, cursor, gmessage_id):
+        """
+        Return True if message is cached.
+        Return False otherwise.
+        """
+        cursor.execute(sql_message_exists, [gmessage_id])
+        row = cursor.fetchone()
+        if row is None:
+            return False
+        else:
+            return True
 
     def insert_current_label(self, cursor):
         sql = """\

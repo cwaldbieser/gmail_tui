@@ -102,6 +102,63 @@ def parse_fetch_google_ids_response(response):
         yield fields
 
 
+def compress_uids(all_uids, selected_uids):
+    """
+    Compress a sorted selection of UIDs into ranges given the complete sorted
+    sequence of UIDs.
+    """
+    results = []
+    selected_uids = selected_uids[:]
+    range_max_uid = selected_uids.pop()
+    range_min_uid = None
+    current_uid = range_max_uid
+    pos1 = all_uids.index(current_uid)
+    while len(selected_uids):
+        candidate_uid = selected_uids.pop()
+        # Are the uids between candidate and current?
+        pos0 = all_uids.index(candidate_uid)
+        if pos0 + 1 == pos1:
+            # No in-between UIDs
+            range_min_uid = candidate_uid
+            pos1 = pos0
+        else:
+            # There is at least 1 in-between UID we don't want to include.
+            item = uid_or_range(range_min_uid, range_max_uid)
+            results.append(item)
+            range_max_uid = candidate_uid
+            pos1 = pos0
+            range_min_uid = None
+    if range_max_uid is not None:
+        item = uid_or_range(range_min_uid, range_max_uid)
+        results.append(item)
+    return results
+
+
+def uid_or_range(min_uid, max_uid):
+    """
+    Return a single UID or a tuple representing a pair (min_uid, max_uid).
+    """
+    if min_uid is None:
+        return max_uid
+    else:
+        return (min_uid, max_uid)
+
+
+def uid_seq_to_criteria(uids):
+    """
+    Convert a list of items into a string representation of a UID set.
+    Items may be integers or ranges.
+    Ranges are tuple(min_uid, max_uid).
+    """
+    criteria = []
+    for item in uids:
+        if isinstance(item, tuple):
+            criteria.append(f"{str(item[0])}:{str(item[1])}")
+        else:
+            criteria.append(str(item))
+    return ",".join(criteria)
+
+
 def is_unread(flags):
     return not (MailMessageFlags.SEEN in flags)
 
