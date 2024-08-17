@@ -412,6 +412,8 @@ class GMailApp(App):
     page = 0
     label = "INBOX"
     sync_messages_flag = True
+    min_uid = None
+    max_uid = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -504,6 +506,7 @@ class GMailApp(App):
                 n += 1
                 if n >= self.page_size:
                     break
+        logger.debug(f"Retrieved {n} rows for list view.")
         if len(uids) == 0:
             return
         self.min_uid = min(uids)
@@ -653,6 +656,10 @@ class GMailApp(App):
         cursor.execute(sql_find_ml, [gmessage_id, self.label])
         row = cursor.fetchone()
         if row is None:
+            logger.debug(
+                "INSERTing message label for "
+                f"gmessage_id {gmessage_id}, uid: {msg.uid}, label: {self.label}"
+            )
             cursor.execute(sql_insert_ml, [gmessage_id, self.label, msg.uid])
 
     def accept_imap_updates(self, mailbox, conn):

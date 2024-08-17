@@ -97,7 +97,7 @@ def parse_fetch_google_ids_response(response):
             if pos == -1:
                 value = None
             else:
-                value = response_parts[pos]
+                value = response_parts[pos + 1]
             fields[name] = value
         yield fields
 
