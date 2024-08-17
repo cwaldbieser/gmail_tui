@@ -188,7 +188,7 @@ def get_text_from_message(msg, content_type="text/plain"):
             transfer_encoding = part.get("content-transfer-encoding")
             decode = transfer_encoding is not None
             payload = part.get_payload(decode=decode)
-            if type(payload) == bytes:
+            if isinstance(payload, bytes):
                 payload = payload.decode()
             text = payload
             return text
@@ -540,26 +540,13 @@ class GMailApp(App):
                         # Update any cached messages
                         # Record any uncached messages that should be cached.
                         if self.is_message_cached(cursor, gmessage_id):
-                            self.update_message(
+                            self.insert_or_update_message(
                                 cursor, gmessage_id, gthread_id, glabels, msg
                             )
                         else:
                             uncached_message_uids.add(int(msg.uid))
                     # Remove any cached labels that are no longer applied.
-                    cursor.execute(sql_all_uids_for_label, [self.label])
-                    message_labels_to_delete = []
-                    for row in fetchrows(cursor, num_rows=cursor.arraysize):
-                        row_id, uid = row
-                        if uid not in uid_set:
-                            logger.debug(
-                                f"UID {uid} to be deleted from label {self.label} ..."
-                            )
-                            message_labels_to_delete.append(row_id)
-                    logger.debug(
-                        f"Row IDs of message labels to delete: {message_labels_to_delete}"
-                    )
-                    for row_id in message_labels_to_delete:
-                        cursor.execute(sql_delete_message_label, [row_id])
+                    self.remove_cached_labels(cursor, uid_set)
                     # Download and cache any uncached messages.
                     all_uids = list(uid_set)
                     all_uids.sort()
@@ -583,6 +570,21 @@ class GMailApp(App):
                     self.accept_imap_updates(mailbox, conn)
             except Exception as ex:
                 logger.debug(f"[DEGUB] exception closed imap mailbox: {type(ex)}, {ex}")
+
+    def remove_cached_labels(self, cursor, uid_set):
+        """
+        Remove cached labels for UIDs no longer in the mailbox.
+        """
+        cursor.execute(sql_all_uids_for_label, [self.label])
+        message_labels_to_delete = []
+        for row in fetchrows(cursor, num_rows=cursor.arraysize):
+            row_id, uid = row
+            if uid not in uid_set:
+                logger.debug(f"UID {uid} to be deleted from label {self.label} ...")
+                message_labels_to_delete.append(row_id)
+        logger.debug(f"Row IDs of message labels to delete: {message_labels_to_delete}")
+        for row_id in message_labels_to_delete:
+            cursor.execute(sql_delete_message_label, [row_id])
 
     def is_message_cached(self, cursor, gmessage_id):
         """
