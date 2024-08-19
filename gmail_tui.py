@@ -31,7 +31,9 @@ from textual.widgets import (Button, Footer, Header, Input, Label, ListItem,
 from gmailtuilib.imap import (compress_uids, fetch_google_messages,
                               get_mailbox, is_starred, is_unread,
                               uid_seq_to_criteria)
+from gmailtuilib.message import MessageItem
 from gmailtuilib.oauth2 import get_oauth2_access_token
+from gmailtuilib.search import SearchResultsScreen, SearchScreen
 from gmailtuilib.smtp import gmail_smtp
 from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_ddl_labels_idx0, sql_ddl_message_labels,
@@ -41,7 +43,6 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml, sql_message_exists)
-from gmailtuilib.search import SearchScreen
 
 handlers = logzero.logger.handlers[:]
 for handler in handlers:
@@ -225,76 +226,6 @@ def create_attachment_buttons(attachments):
     return buttons
 
 
-class MessageItem(Static):
-    starred = reactive(False)
-    unread = reactive(False)
-
-    def __init__(
-        self,
-        message_id,
-        uid,
-        date_str,
-        sender,
-        subject,
-        starred=False,
-        unread=False,
-        **kwds,
-    ):
-        super().__init__(**kwds)
-        self.message_id = message_id
-        self.uid = uid
-        self.date_str = date_str
-        self.sender = sender
-        self.subject = " ".join(subject.split())
-        self.starred = starred
-        self.unread = unread
-
-    def compose(self):
-        status_line = self.compose_statusline()
-        yield Label(status_line)
-        yield Label(f"GMSGID:  {self.message_id}", classes="diagnostic")
-        yield Label(f"UID:     {self.uid}", classes="diagnostic")
-        yield Label(f"Date:    {self.date_str}")
-        yield Label(f"From:    {self.sender}")
-        yield Label(f"Subject: {self.subject}", classes="subject")
-
-    def allow_focus(self):
-        return True
-
-    def watch_starred(self, value):
-        self.update_statusline()
-
-    def watch_unread(self, value):
-        self.update_statusline()
-        if self.parent is None:
-            return
-        if value:
-            self.parent.add_class("unread")
-        else:
-            self.parent.remove_class("unread")
-
-    def update_statusline(self):
-        children = self.children
-        if len(children) == 0:
-            return
-        statusline = self.compose_statusline()
-        label = children[0]
-        label.update(statusline)
-
-    def compose_statusline(self):
-        starred = self.starred
-        unread = self.unread
-        icons = []
-        if starred:
-            icons.append("⭐")
-        if unread:
-            icons.append("")
-        else:
-            icons.append("")
-        status_line = " ".join(icons)
-        return status_line
-
-
 class Messages(ListView):
     message_threads = OrderedDict()
     uids_in_view = set([])
@@ -404,6 +335,7 @@ class GMailApp(App):
         "msg_screen": MessageScreen(),
         "headers_screen": HeadersScreen(),
         "search_screen": SearchScreen(),
+        "search_results_screen": SearchResultsScreen(),
     }
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [
@@ -546,7 +478,12 @@ class GMailApp(App):
                         # Record any uncached messages that should be cached.
                         if self.is_message_cached(cursor, gmessage_id):
                             self.insert_or_update_message(
-                                cursor, gmessage_id, gthread_id, glabels, None
+                                cursor,
+                                gmessage_id,
+                                gthread_id,
+                                glabels,
+                                msg,
+                                update_only=True,
                             )
                         else:
                             uncached_message_uids.add(int(msg.uid))
@@ -562,7 +499,12 @@ class GMailApp(App):
                     uid_seq = compress_uids(all_uids, uncached_message_uids)
                     if len(uid_seq) > 0:
                         uid_criteria = uid_seq_to_criteria(uid_seq)
-                        for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
+                        for (
+                            gmessage_id,
+                            gthread_id,
+                            glabels,
+                            msg,
+                        ) in fetch_google_messages(
                             mailbox,
                             criteria=A(uid=uid_criteria),
                             headers_only=False,
@@ -638,9 +580,11 @@ class GMailApp(App):
         for row_id in rows_to_delete:
             cursor.execute(sql_delete_message_label, [row_id])
 
-    def insert_or_update_message(self, cursor, gmessage_id, gthread_id, glabels, msg):
+    def insert_or_update_message(
+        self, cursor, gmessage_id, gthread_id, glabels, msg, update_only=False
+    ):
         """
-        `msg` must be an imap_tools.message.Message for inserts.
+        `msg` must be an imap_tools.message.Message.
         """
         flags = msg.flags
         unread = is_unread(flags)
@@ -648,7 +592,7 @@ class GMailApp(App):
         cursor.execute("SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id])
         row = cursor.fetchone()
         if row is None:
-            if msg is None:
+            if not update_only:
                 return
             sql = """\
                 INSERT INTO messages
@@ -775,6 +719,9 @@ class GMailApp(App):
             if search_fields is None:
                 return
             logger.debug(f"SEARCH FIELDS: {search_fields}")
+            screen = self.SCREENS["search_results_screen"]
+            screen.init_search(search_fields)
+            self.push_screen(screen)
 
         self.push_screen(screen, process_search_form)
 
