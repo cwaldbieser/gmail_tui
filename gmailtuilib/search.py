@@ -7,7 +7,7 @@ from imap_tools import A
 from logzero import logger
 from textual import work
 from textual.containers import Horizontal
-from textual.screen import Screen
+from textual.screen import ModalScreen
 from textual.widgets import (Button, Footer, Input, Label, ListItem, ListView,
                              LoadingIndicator, Switch)
 
@@ -17,7 +17,7 @@ from gmailtuilib.message import MessageItem, msg_to_email_msg, str_to_email_msg
 from gmailtuilib.oauth2 import get_oauth2_access_token
 
 
-class SearchScreen(Screen):
+class SearchScreen(ModalScreen):
 
     BINDINGS = [("escape", "app.pop_screen", "Cancel Search")]
 
@@ -44,7 +44,7 @@ class SearchScreen(Screen):
             self.dismiss(None)
 
 
-class SearchResultsScreen(Screen):
+class SearchResultsScreen(ModalScreen):
 
     BINDINGS = [("escape", "back", "Back")]
     search_fields = None

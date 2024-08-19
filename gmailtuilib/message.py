@@ -12,7 +12,7 @@ from logzero import logger
 from textual.containers import (Horizontal, HorizontalScroll,
                                 ScrollableContainer)
 from textual.reactive import reactive
-from textual.screen import Screen
+from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, Static
 
 from gmailtuilib.oauth2 import get_oauth2_access_token
@@ -91,7 +91,7 @@ class MessageItem(Static):
         return status_line
 
 
-class HeadersScreen(Screen):
+class HeadersScreen(ModalScreen):
 
     BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
 
@@ -145,7 +145,7 @@ class AttachmentButton(Button):
         logger.debug(f"Saved attachment to {full_path}.")
 
 
-class MessageScreen(Screen):
+class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
         ("r", "reply", "Reply to message."),
