@@ -41,6 +41,7 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
                                 sql_insert_ml, sql_message_exists)
+from gmailtuilib.search import SearchScreen
 
 handlers = logzero.logger.handlers[:]
 for handler in handlers:
@@ -184,7 +185,9 @@ def get_text_from_message(msg, content_type="text/plain"):
     Extract text from email message.
     """
     for part in msg.walk():
-        if part.get_content_type() == content_type:
+        part_content_type = part.get_content_type()
+        logger.debug(f"Part content-type: {part_content_type}")
+        if part_content_type == content_type:
             transfer_encoding = part.get("content-transfer-encoding")
             decode = transfer_encoding is not None
             payload = part.get_payload(decode=decode)
@@ -400,12 +403,14 @@ class GMailApp(App):
     SCREENS = {
         "msg_screen": MessageScreen(),
         "headers_screen": HeadersScreen(),
+        "search_screen": SearchScreen(),
     }
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit"),
         ("c", "compose", "Compose message"),
+        ("s", "search", "Search for messages"),
     ]
 
     page_size = 50
@@ -541,7 +546,7 @@ class GMailApp(App):
                         # Record any uncached messages that should be cached.
                         if self.is_message_cached(cursor, gmessage_id):
                             self.insert_or_update_message(
-                                cursor, gmessage_id, gthread_id, glabels, msg
+                                cursor, gmessage_id, gthread_id, glabels, None
                             )
                         else:
                             uncached_message_uids.add(int(msg.uid))
@@ -635,7 +640,7 @@ class GMailApp(App):
 
     def insert_or_update_message(self, cursor, gmessage_id, gthread_id, glabels, msg):
         """
-        `msg` must be an imap_tools.message.Message.
+        `msg` must be an imap_tools.message.Message for inserts.
         """
         flags = msg.flags
         unread = is_unread(flags)
@@ -643,6 +648,8 @@ class GMailApp(App):
         cursor.execute("SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id])
         row = cursor.fetchone()
         if row is None:
+            if msg is None:
+                return
             sql = """\
                 INSERT INTO messages
                     (gmessage_id, gthread_id, message_string, unread, starred)
@@ -760,6 +767,16 @@ class GMailApp(App):
                 smtp.sendmail(user, recipients, message.as_string())
 
         self.push_screen(screen, compose_message)
+
+    def action_search(self):
+        screen = self.SCREENS["search_screen"]
+
+        def process_search_form(search_fields):
+            if search_fields is None:
+                return
+            logger.debug(f"SEARCH FIELDS: {search_fields}")
+
+        self.push_screen(screen, process_search_form)
 
     def on_button_pressed(self, event: Button.Pressed):
         button = event.button

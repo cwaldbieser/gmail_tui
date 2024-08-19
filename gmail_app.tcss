@@ -97,6 +97,29 @@ ButtonBar {
     width: 10%;
 }
 
+#search-buttonbar {
+    height: 7fr;
+    align: center top;
+}
+
+#search-buttonbar Button {
+    margin: 1;
+}
+
+.search-row {
+    height: 1fr;
+}
+
+.search-row Input {
+    width: 90%;
+}
+
+.search-label {
+    border: solid $primary-background-lighten-3;
+    align: center middle;
+    width: 15%;
+}
+
 .button {
     margin: 1;
 }
