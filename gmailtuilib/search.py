@@ -1,3 +1,4 @@
+import datetime
 import sqlite3
 
 from dateutil.parser import parse as parse_date
@@ -55,12 +56,13 @@ class SearchResultsScreen(Screen):
 
     def init_search(self, search_fields):
         self.search_fields = search_fields
-
-    def on_mount(self):
         if self.search_fields is None:
             return
         logger.debug("Initializing search results ...")
-        lv = self.query_one("#search-results")
+        try:
+            lv = self.query_one("#search-results")
+        except Exception:
+            return
         if lv is None:
             return
         lv.clear()
@@ -90,10 +92,15 @@ class SearchResultsScreen(Screen):
                 mailbox.folder.set("[Gmail]/All Mail")
             else:
                 mailbox.folder.set(self.app.label)
+            logger.debug(f"Starting IMAP search with criteria: {criteria}")
+            start = datetime.datetime.now()
             for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox, criteria=criteria, headers_only=False, limit=50
             ):
                 results.append((gmessage_id, glabels, msg))
+            stop = datetime.datetime.now()
+            td = stop - start
+            logger.debug(f"Total seconds for query: {td.total_seconds()}")
         self.app.call_from_thread(self.display_search_results, results)
 
     def display_search_results(self, search_results):
@@ -170,7 +177,12 @@ class SearchResultsScreen(Screen):
                     for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                         mailbox, criteria=criteria, headers_only=False, limit=1
                     ):
-                        result = gmessage_id, gthread_id, glabels, msg_to_email_msg(msg.obj)
+                        result = (
+                            gmessage_id,
+                            gthread_id,
+                            glabels,
+                            msg_to_email_msg(msg.obj),
+                        )
                         break
                 logger.debug(f"Preparing to cache {gmessage_id}")
                 self.cache_message(cursor, gmessage_id, gthread_id, glabels, msg)
