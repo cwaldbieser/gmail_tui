@@ -3,6 +3,7 @@ import pathlib
 import subprocess
 import tempfile
 from email.mime.text import MIMEText
+from email.parser import Parser
 from email.policy import default as default_policy
 
 import html2text
@@ -24,28 +25,30 @@ class MessageItem(Static):
 
     def __init__(
         self,
-        message_id,
+        gmessage_id,
         uid,
         date_str,
         sender,
         subject,
         starred=False,
         unread=False,
+        glabels=None,
         **kwds,
     ):
         super().__init__(**kwds)
-        self.message_id = message_id
+        self.gmessage_id = gmessage_id
         self.uid = uid
         self.date_str = date_str
         self.sender = sender
         self.subject = " ".join(subject.split())
         self.starred = starred
         self.unread = unread
+        self.glabels = glabels
 
     def compose(self):
         status_line = self.compose_statusline()
         yield Label(status_line)
-        yield Label(f"GMSGID:  {self.message_id}", classes="diagnostic")
+        yield Label(f"GMSGID:  {self.gmessage_id}", classes="diagnostic")
         yield Label(f"UID:     {self.uid}", classes="diagnostic")
         yield Label(f"Date:    {self.date_str}")
         yield Label(f"From:    {self.sender}")
@@ -144,7 +147,7 @@ class AttachmentButton(Button):
 
 class MessageScreen(Screen):
     BINDINGS = [
-        ("escape", "app.pop_screen", "Pop screen"),
+        ("escape", "back", "Pop screen"),
         ("r", "reply", "Reply to message."),
     ]
 
@@ -177,6 +180,9 @@ class MessageScreen(Screen):
                 text = html2text.html2text(text)
         text = text.lstrip()
         self.text = text
+
+    def action_back(self):
+        self.dismiss(True)
 
     def action_reply(self):
         screen = self.app.SCREENS["headers_screen"]
@@ -262,3 +268,22 @@ def create_attachment_buttons(attachments):
         button.binary_data = data
         buttons.append(button)
     return buttons
+
+
+def msg_to_email_msg(msg):
+    """
+    Convert email.message.Message to email.message.EmailMessage.
+    """
+
+    parser = Parser(policy=default_policy)
+    email_msg = parser.parsestr(msg.as_string(policy=default_policy))
+    return email_msg
+
+
+def str_to_email_msg(s):
+    """
+    Convert a string-serialized email to an email message.
+    """
+    parser = Parser(policy=default_policy)
+    email_msg = parser.parsestr(s)
+    return email_msg

@@ -295,7 +295,7 @@ class GMailApp(App):
                         uid_set.add(int(msg.uid))
                         # Update any cached messages
                         # Record any uncached messages that should be cached.
-                        if self.is_message_cached(cursor, gmessage_id):
+                        if self.get_cached_message(cursor, gmessage_id):
                             self.insert_or_update_message(
                                 cursor,
                                 gmessage_id,
@@ -353,17 +353,13 @@ class GMailApp(App):
         for row_id in message_labels_to_delete:
             cursor.execute(sql_delete_message_label, [row_id])
 
-    def is_message_cached(self, cursor, gmessage_id):
+    def get_cached_message(self, cursor, gmessage_id):
         """
-        Return True if message is cached.
-        Return False otherwise.
+        Return cached row or None.
         """
         cursor.execute(sql_message_exists, [gmessage_id])
         row = cursor.fetchone()
-        if row is None:
-            return False
-        else:
-            return True
+        return row
 
     def insert_current_label(self, cursor):
         sql = """\

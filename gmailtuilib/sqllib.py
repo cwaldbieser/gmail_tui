@@ -126,7 +126,14 @@ sql_fetch_msgs_for_label = """\
     """
 
 sql_message_exists = """\
-    SELECT gmessage_id FROM messages WHERE gmessage_id = ?
+    SELECT
+        gmessage_id,
+        gthread_id,
+        message_string,
+        unread,
+        starred
+    FROM messages
+    WHERE gmessage_id = ?
     """
 
 sql_ddl_messages = """\

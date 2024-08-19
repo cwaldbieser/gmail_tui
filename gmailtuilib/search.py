@@ -1,15 +1,18 @@
+import sqlite3
+
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
+from imap_tools import A
 from logzero import logger
 from textual import work
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import (Button, Input, Label, ListItem, ListView,
+from textual.widgets import (Button, Footer, Input, Label, ListItem, ListView,
                              LoadingIndicator, Switch)
 
 from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
                               is_unread)
-from gmailtuilib.message import MessageItem
+from gmailtuilib.message import MessageItem, msg_to_email_msg, str_to_email_msg
 from gmailtuilib.oauth2 import get_oauth2_access_token
 
 
@@ -48,6 +51,7 @@ class SearchResultsScreen(Screen):
     def compose(self):
         yield ListView(id="search-results")
         yield LoadingIndicator(id="search-loading")
+        yield Footer()
 
     def init_search(self, search_fields):
         self.search_fields = search_fields
@@ -60,6 +64,7 @@ class SearchResultsScreen(Screen):
         if lv is None:
             return
         lv.clear()
+        lv.add_class("invisible")
         loading = self.query_one("#search-loading")
         loading.remove_class("invisible")
         self.fetch_search_results()
@@ -83,6 +88,8 @@ class SearchResultsScreen(Screen):
         with get_mailbox(config, access_token) as mailbox:
             if search_fields["all_mbox"]:
                 mailbox.folder.set("[Gmail]/All Mail")
+            else:
+                mailbox.folder.set(self.app.label)
             for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox, criteria=criteria, headers_only=False, limit=50
             ):
@@ -111,6 +118,7 @@ class SearchResultsScreen(Screen):
                 subject,
                 unread=unread,
                 starred=starred,
+                glabels=glabels,
             )
             if n % 2 == 0:
                 message_item.add_class("item-even")
@@ -120,3 +128,79 @@ class SearchResultsScreen(Screen):
             lv.append(li)
         loading = self.query_one("#search-loading")
         loading.add_class("invisible")
+        lv.remove_class("invisible")
+
+    def on_list_view_selected(self, event):
+        event.stop()
+        lv = self.query_one("#search-results")
+        logger.debug(f"Position of item selected {lv.index}")
+        item = event.item
+        msgitem = item.children[0]
+        uid = msgitem.uid
+        gmessage_id = msgitem.gmessage_id
+        glabels = msgitem.glabels
+        loading = self.query_one("#search-loading")
+        loading.remove_class("invisible")
+        lv.add_class("invisible")
+        self.fetch_message(gmessage_id, uid, glabels)
+
+    @work(exclusive=True, group="fetch-message", thread=True)
+    def fetch_message(self, gmessage_id, uid, glabels):
+        """
+        Fetch a specific message by UID.
+        """
+        search_fields = self.search_fields
+        db_path = self.app.db_path
+        logger.debug(f"DB path: {db_path}")
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA foreign_keys = ON;")
+            cursor = conn.cursor()
+            result = self.app.get_cached_message(cursor, gmessage_id)
+            if result is None:
+                logger.debug(f"Fetching message with ID {gmessage_id}.")
+                config = self.app.config
+                access_token = get_oauth2_access_token(config)
+                with get_mailbox(config, access_token) as mailbox:
+                    if search_fields["all_mbox"]:
+                        mailbox.folder.set("[Gmail]/All Mail")
+                    else:
+                        mailbox.folder.set(self.app.label)
+                    criteria = A(uid=[uid])
+                    for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
+                        mailbox, criteria=criteria, headers_only=False, limit=1
+                    ):
+                        result = gmessage_id, gthread_id, glabels, msg_to_email_msg(msg.obj)
+                        break
+                logger.debug(f"Preparing to cache {gmessage_id}")
+                self.cache_message(cursor, gmessage_id, gthread_id, glabels, msg)
+                conn.commit()
+            else:
+                logger.debug(f"Using cached message: {gmessage_id}.")
+                _, gthread_id, message_string, unread, starred = result
+                msg = str_to_email_msg(message_string)
+                result = (gmessage_id, gthread_id, glabels, msg)
+        self.app.call_from_thread(self.display_message, *result)
+
+    def cache_message(self, cursor, gmessage_id, gthread_id, glabels, msg):
+        flags = msg.flags
+        unread = is_unread(flags)
+        starred = is_starred(flags)
+        sql = """\
+            INSERT INTO messages
+                (gmessage_id, gthread_id, message_string, unread, starred)
+                VALUES (?, ?, ?, ?, ?)
+            """
+        cursor.execute(
+            sql,
+            [gmessage_id, gthread_id, msg.obj.as_string(), unread, starred],
+        )
+
+    def display_message(self, gmessage_id, gthread_id, glabels, msg):
+        loading = self.query_one("#search-loading")
+        loading.add_class("invisible")
+        lv = self.query_one("#search-results")
+        lv.remove_class("invisible")
+        screen = self.app.SCREENS["msg_screen"]
+        screen.msg = msg
+        self.app.push_screen(screen)
