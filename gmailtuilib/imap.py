@@ -50,9 +50,12 @@ def fetch_google_messages(
         uids = list(int(uid) for uid in messages.keys())
         max_uid = max(uids)
         min_uid = min(uids)
+        all_uids = list(range(min_uid, max_uid + 1))
+        uid_seq = compress_uids(all_uids, uids)
+        criteria_str = uid_seq_to_criteria(uid_seq)
         client = mailbox.client
         response = client.uid(
-            "fetch", f"{min_uid}:{max_uid}", "(X-GM-MSGID X-GM-THRID X-GM-LABELS)"
+            "fetch", f"{criteria_str}", "(X-GM-MSGID X-GM-THRID X-GM-LABELS)"
         )
         results = parse_fetch_google_ids_response(response)
         for fields in results:
