@@ -18,6 +18,7 @@ from imap_tools import A
 from logzero import logger
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.logging import TextualHandler
 from textual.message import Message
 from textual.widgets import (Button, Footer, Header, ListItem, ListView,
@@ -158,7 +159,7 @@ class GMailApp(App):
     }
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [
-        ("d", "toggle_dark", "Toggle dark mode"),
+        Binding("d", "toggle_dark", "Toggle dark mode", priority=True, show=True),
         ("q", "quit", "Quit"),
         ("c", "compose", "Compose message"),
         ("s", "search", "Search for messages"),

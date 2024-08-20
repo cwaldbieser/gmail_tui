@@ -155,9 +155,11 @@ class EmailHeadersWidget(Static):
         with Horizontal(classes="message-header-row"):
             yield Label("From:", classes="message-label")
             yield Label(msg.get("From", ""), classes="message-value")
-        with Horizontal(classes="message-header-row"):
-            yield Label("To:", classes="message-label")
-            yield Label(msg.get("To", ""), classes="message-value")
+        recipients = [addr.strip() for addr in msg.get("To", "").split(",")]
+        for recipient in recipients:
+            with Horizontal(classes="message-header-row"):
+                yield Label("To:", classes="message-label")
+                yield Label(recipient, classes="message-value")
         with Horizontal(classes="message-header-row"):
             yield Label("Date:", classes="message-label")
             yield Label(msg.get("Date", ""), classes="message-value")
