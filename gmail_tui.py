@@ -311,10 +311,8 @@ class GMailApp(App):
                     # Download and cache any uncached messages.
                     all_uids = list(uid_set)
                     all_uids.sort()
-                    logger.debug(f"ALL UIDS: {all_uids}")
                     uncached_message_uids = list(uncached_message_uids)
                     uncached_message_uids.sort()
-                    logger.debug(f"UNCACHED UIDS: {uncached_message_uids}")
                     uid_seq = compress_uids(all_uids, uncached_message_uids)
                     if len(uid_seq) > 0:
                         uid_criteria = uid_seq_to_criteria(uid_seq)
@@ -407,7 +405,7 @@ class GMailApp(App):
         cursor.execute("SELECT id FROM messages WHERE gmessage_id = ?", [gmessage_id])
         row = cursor.fetchone()
         if row is None:
-            if not update_only:
+            if update_only:
                 return
             sql = """\
                 INSERT INTO messages
