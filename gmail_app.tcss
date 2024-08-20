@@ -60,6 +60,27 @@ ButtonBar {
 
 }
 
+.message-label {
+    width: 10%;
+    background: $primary-background-lighten-1;
+    align: center middle;
+}
+ .message-value {
+    width: 90%;
+    margin-left: 1;
+ }
+
+.message-header-row {
+    height: auto;
+    background: $primary-background-lighten-3;
+}
+
+#message-header-area {
+    height: 1fr;
+}
+#message-text-area {
+    height: 4fr;
+}
 #msg-text {
     /*height: 100%;*/
 }

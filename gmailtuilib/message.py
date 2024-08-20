@@ -145,6 +145,27 @@ class AttachmentButton(Button):
         logger.debug(f"Saved attachment to {full_path}.")
 
 
+class EmailHeadersWidget(Static):
+    def __init__(self, msg, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.msg = msg
+
+    def compose(self):
+        msg = self.msg
+        with Horizontal(classes="message-header-row"):
+            yield Label("From:", classes="message-label")
+            yield Label(msg.get("From", ""), classes="message-value")
+        with Horizontal(classes="message-header-row"):
+            yield Label("To:", classes="message-label")
+            yield Label(msg.get("To", ""), classes="message-value")
+        with Horizontal(classes="message-header-row"):
+            yield Label("Date:", classes="message-label")
+            yield Label(msg.get("Date", ""), classes="message-value")
+        with Horizontal(classes="message-header-row"):
+            yield Label("Subject:", classes="message-label")
+            yield Label(msg.get("Subject", ""), classes="message-value")
+
+
 class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
@@ -156,7 +177,12 @@ class MessageScreen(ModalScreen):
 
     def compose(self):
         yield Header()
-        yield ScrollableContainer(Static(self.text, id="msg-text"))
+        yield ScrollableContainer(
+            EmailHeadersWidget(self.msg), id="message-header-area"
+        )
+        yield ScrollableContainer(
+            Static(self.text, id="msg-text"), id="message-text-area"
+        )
         attachments = get_attachments(self.msg)
         buttons = create_attachment_buttons(attachments)
         if len(buttons) > 0:
