@@ -536,6 +536,7 @@ class GMailApp(App):
             logger.debug(f"SEARCH FIELDS: {search_fields}")
             screen = self.SCREENS["search_results_screen"]
             screen.search_fields = search_fields
+            screen.search_completed = False
             self.push_screen(screen)
 
         self.push_screen(screen, process_search_form)

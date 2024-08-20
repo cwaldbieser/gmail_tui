@@ -48,6 +48,7 @@ class SearchResultsScreen(ModalScreen):
 
     BINDINGS = [("escape", "back", "Back")]
     search_fields = None
+    search_completed = False
 
     def compose(self):
         yield ListView(id="search-results")
@@ -55,14 +56,13 @@ class SearchResultsScreen(ModalScreen):
         yield Footer()
 
     def on_screen_resume(self):
-        self.init_search()
+        if not self.search_completed:
+            self.init_search()
 
     def init_search(self):
-        logger.debug("Initiating GMail search ...")
         if self.search_fields is None:
             logger.debug("No search criteria-- terminating search.")
             return
-        logger.debug("Initializing search results ...")
         try:
             lv = self.query_one("#search-results")
         except Exception:
@@ -87,7 +87,6 @@ class SearchResultsScreen(ModalScreen):
         """
         Fetch search results from IMAP server.
         """
-        logger.debug("Starting GMail search in a worker thread ...")
         search_fields = self.search_fields
         results = []
         criteria = f'X-GM-RAW "{search_fields["criteria"]}"'
@@ -95,23 +94,17 @@ class SearchResultsScreen(ModalScreen):
         access_token = get_oauth2_access_token(config)
         with get_mailbox(config, access_token) as mailbox:
             if search_fields["all_mbox"]:
-                logger.debug("Setting mailbox to *all* ..")
                 mailbox.folder.set("[Gmail]/All Mail")
             else:
                 mailbox.folder.set(self.app.label)
-                logger.debug(f"Setting mailbox to {self.app.label} ...")
-            logger.debug(f"Starting IMAP search with criteria: {criteria}")
-            logger.debug("Mailbox has been set.")
             start = datetime.datetime.now()
-            logger.debug("Iterating over IMAP results ...")
             for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                 mailbox, criteria=criteria, headers_only=False, batch_size=50, limit=50
             ):
-                logger.debug("Appending result ...")
                 results.append((gmessage_id, glabels, msg))
             stop = datetime.datetime.now()
             td = stop - start
-            logger.debug(f"Total seconds for query: {td.total_seconds()}")
+            logger.debug(f"Total seconds for IMAP query: {td.total_seconds()}")
         self.app.call_from_thread(self.display_search_results, results)
 
     def display_search_results(self, search_results):
@@ -147,11 +140,11 @@ class SearchResultsScreen(ModalScreen):
         loading = self.query_one("#search-loading")
         loading.add_class("invisible")
         lv.remove_class("invisible")
+        self.search_completed = True
 
     def on_list_view_selected(self, event):
         event.stop()
         lv = self.query_one("#search-results")
-        logger.debug(f"Position of item selected {lv.index}")
         item = event.item
         msgitem = item.children[0]
         uid = msgitem.uid
