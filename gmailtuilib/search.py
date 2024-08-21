@@ -12,7 +12,7 @@ from textual.widgets import (Button, Footer, Input, Label, ListItem, ListView,
                              LoadingIndicator, Switch)
 
 from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
-                              is_unread)
+                              is_unread, quote_imap_string)
 from gmailtuilib.message import MessageItem, msg_to_email_msg, str_to_email_msg
 from gmailtuilib.oauth2 import get_oauth2_access_token
 
@@ -89,7 +89,7 @@ class SearchResultsScreen(ModalScreen):
         """
         search_fields = self.search_fields
         results = []
-        criteria = f'X-GM-RAW "{search_fields["criteria"]}"'
+        criteria = f'X-GM-RAW {quote_imap_string(search_fields["criteria"])}'
         config = self.app.config
         access_token = get_oauth2_access_token(config)
         with get_mailbox(config, access_token) as mailbox:

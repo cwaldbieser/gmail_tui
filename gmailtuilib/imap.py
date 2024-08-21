@@ -4,8 +4,11 @@ from itertools import islice
 
 from imap_tools import MailBox
 from imap_tools.consts import MailMessageFlags
+from imap_tools.utils import quote
 
 from gmailtuilib.parsers import imap_gmail_uid_fetch_response_parser
+
+quote_imap_string = quote
 
 
 @contextlib.contextmanager
