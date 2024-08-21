@@ -78,8 +78,14 @@ ButtonBar {
 #message-header-area {
     height: 1fr;
 }
+#message-header-area:focus {
+    background: $primary-background;
+}
 #message-text-area {
     height: 4fr;
+}
+#message-text-area:focus {
+    background: $primary-background;
 }
 #msg-text {
     /*height: 100%;*/
