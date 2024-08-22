@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import tomllib
 from collections import OrderedDict
+from contextlib import contextmanager
 from email.mime.text import MIMEText
 # from email.parser import BytesHeaderParser
 from email.parser import HeaderParser, Parser
@@ -52,6 +53,7 @@ class Messages(ListView):
     BINDINGS = [
         ("a", "archive", "Archive message"),
         ("t", "trash", "Trash message"),
+        ("u", "toggle_unread", "Toggle (un)read"),
     ]
     message_threads = OrderedDict()
     uids_in_view = set([])
@@ -177,6 +179,19 @@ class Messages(ListView):
             index = 0
         self.index = index
 
+    def action_toggle_unread(self):
+        index = self.index
+        if index is None or index < 0:
+            return
+        li = self.children[index]
+        mi = li.children[0]
+        uid = mi.uid
+        gmessage_id = mi.gmessage_id
+        unread = mi.unread
+        mi.unread = not unread
+        self.app.mark_message_read_status(uid, self.app.label, read=unread)
+        self.app.mark_cached_message_read_status(None, gmessage_id, read=unread)
+
 
 class ButtonBar(Static):
     def compose(self):
@@ -252,6 +267,7 @@ class GMailApp(App):
             self.mark_message_read_status(uid, self.label, read=True)
             # Mark cached message as read
             self.mark_cached_message_read_status(cursor, gmessage_id, read=True)
+            conn.commit()
         # Stop workers
         for worker in self.workers:
             if worker.group == "refresh-listview":
@@ -451,9 +467,27 @@ class GMailApp(App):
     def mark_cached_message_read_status(self, cursor, gmessage_id, read=True):
         """
         Alter the cached read/unread status of a message.
+        `cursor` may be None, in which case a new connection will be created.
         """
-        unread = int(not read)
-        cursor.execute(sql_update_message_unread, [unread, gmessage_id])
+        with self.get_cursor_if_needed(cursor) as cursor:
+            unread = int(not read)
+            cursor.execute(sql_update_message_unread, [unread, gmessage_id])
+
+    @contextmanager
+    def get_cursor_if_needed(self, cursor=None):
+        """
+        Context manager.
+        If passed in cursor is None, establish connection and yield a new cursor.
+        Otherwise, use existing cursor.
+        """
+        if cursor is None:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA foreign_keys = ON;")
+                cursor = conn.cursor()
+                yield cursor
+        else:
+            yield cursor
 
     def insert_or_update_message(
         self, cursor, gmessage_id, gthread_id, glabels, msg, update_only=False
@@ -544,7 +578,7 @@ class GMailApp(App):
                 cursor.execute(sql)
             conn.commit()
 
-    @work(exclusive=True, group="archive-message", thread=True)
+    @work(exclusive=True, group="toggle-message-seen", thread=True)
     def mark_message_read_status(self, uid, label, read=True):
         """
         Mark messages read/unread.
