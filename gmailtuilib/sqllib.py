@@ -136,6 +136,12 @@ sql_message_exists = """\
     WHERE gmessage_id = ?
     """
 
+sql_update_message_unread = """\
+    UPDATE messages
+    SET unread = ?
+    WHERE gmessage_id = ?
+    """
+
 sql_ddl_messages = """\
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY,

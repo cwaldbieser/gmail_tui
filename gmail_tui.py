@@ -15,6 +15,7 @@ import logzero
 from dateutil.parser import parse as parse_date
 from dateutil.tz import tzlocal
 from imap_tools import A
+from imap_tools.consts import MailMessageFlags
 from logzero import logger
 from textual import work
 from textual.app import App, ComposeResult
@@ -38,7 +39,8 @@ from gmailtuilib.sqllib import (sql_all_uids_for_label, sql_ddl_labels,
                                 sql_fetch_msgs_for_label, sql_find_ml,
                                 sql_get_message_labels_in_uid_range,
                                 sql_get_message_string_by_uid_and_label,
-                                sql_insert_ml, sql_message_exists)
+                                sql_insert_ml, sql_message_exists,
+                                sql_update_message_unread)
 
 handlers = logzero.logger.handlers[:]
 for handler in handlers:
@@ -227,7 +229,9 @@ class GMailApp(App):
     def on_list_view_selected(self, event):
         list_item = event.item
         logger.debug(f"item: {list_item}")
-        uid = list_item.children[0].uid
+        mi = list_item.children[0]
+        uid = mi.uid
+        gmessage_id = mi.gmessage_id
         logger.debug(f"Selected message with UID {uid}.")
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
@@ -244,6 +248,10 @@ class GMailApp(App):
             screen = self.SCREENS["msg_screen"]
             logger.debug(f"Selected message subject: {msg['subject']}")
             screen.msg = msg
+            # Mark remote message as read
+            self.mark_message_read_status(uid, self.label, read=True)
+            # Mark cached message as read
+            self.mark_cached_message_read_status(cursor, gmessage_id, read=True)
         # Stop workers
         for worker in self.workers:
             if worker.group == "refresh-listview":
@@ -440,6 +448,13 @@ class GMailApp(App):
         for row_id in rows_to_delete:
             cursor.execute(sql_delete_message_label, [row_id])
 
+    def mark_cached_message_read_status(self, cursor, gmessage_id, read=True):
+        """
+        Alter the cached read/unread status of a message.
+        """
+        unread = int(not read)
+        cursor.execute(sql_update_message_unread, [unread, gmessage_id])
+
     def insert_or_update_message(
         self, cursor, gmessage_id, gthread_id, glabels, msg, update_only=False
     ):
@@ -528,6 +543,19 @@ class GMailApp(App):
                 logger.debug(f"Executing DDL: {sql}")
                 cursor.execute(sql)
             conn.commit()
+
+    @work(exclusive=True, group="archive-message", thread=True)
+    def mark_message_read_status(self, uid, label, read=True):
+        """
+        Mark messages read/unread.
+        """
+        access_token = get_oauth2_access_token(self.config)
+        with get_mailbox(self.config, access_token) as mailbox:
+            mailbox.folder.set(label)
+            uids = [str(uid)]
+            flags = MailMessageFlags.SEEN
+            value = read
+            mailbox.flag(uids, flags, value)
 
     @work(exclusive=True, group="archive-message", thread=True)
     def archive_message(self, uid):
