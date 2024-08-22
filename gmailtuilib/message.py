@@ -22,6 +22,7 @@ from gmailtuilib.smtp import gmail_smtp
 class MessageItem(Static):
     starred = reactive(False)
     unread = reactive(False)
+    inbox = reactive(False)
 
     def __init__(
         self,
@@ -32,6 +33,7 @@ class MessageItem(Static):
         subject,
         starred=False,
         unread=False,
+        inbox=False,
         glabels=None,
         **kwds,
     ):
@@ -43,6 +45,7 @@ class MessageItem(Static):
         self.subject = " ".join(subject.split())
         self.starred = starred
         self.unread = unread
+        self.inbox = inbox
         self.glabels = glabels
 
     def compose(self):
@@ -69,6 +72,9 @@ class MessageItem(Static):
         else:
             self.parent.remove_class("unread")
 
+    def watch_inbox(self, value):
+        self.update_statusline()
+
     def update_statusline(self):
         children = self.children
         if len(children) == 0:
@@ -80,6 +86,7 @@ class MessageItem(Static):
     def compose_statusline(self):
         starred = self.starred
         unread = self.unread
+        inbox = self.inbox
         icons = []
         if starred:
             icons.append("⭐")
@@ -87,8 +94,21 @@ class MessageItem(Static):
             icons.append("")
         else:
             icons.append("")
+        if inbox:
+            icons.append("📥")
         status_line = " ".join(icons)
         return status_line
+
+
+def transform_labels(labels):
+    """
+    Transforms labels into friendly names.
+    """
+    results = []
+    for label in labels:
+        label = label.lstrip("\\")
+        results.append(label)
+    return results
 
 
 class HeadersScreen(ModalScreen):

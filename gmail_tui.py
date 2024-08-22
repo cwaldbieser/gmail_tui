@@ -124,6 +124,10 @@ class Messages(ListView):
         subject = minfo["Subject"]
         unread = minfo["unread"]
         starred = minfo["starred"]
+        if self.app.label == "INBOX":
+            inbox = True
+        else:
+            inbox = False
         widget = MessageItem(
             gmessage_id,
             uid,
@@ -132,6 +136,7 @@ class Messages(ListView):
             subject,
             starred=starred,
             unread=unread,
+            inbox=inbox,
         )
         return widget
 

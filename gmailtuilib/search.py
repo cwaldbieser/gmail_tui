@@ -97,6 +97,7 @@ class SearchResultsScreen(ModalScreen):
         mi = li.children[0]
         uid = mi.uid
         self.app.restore_to_inbox(uid, from_curr_label=False)
+        mi.inbox = True
 
     @work(exclusive=True, group="fetch-search-results", thread=True)
     def fetch_search_results(self):
@@ -137,6 +138,10 @@ class SearchResultsScreen(ModalScreen):
             subject = msg.subject
             unread = is_unread(msg.flags)
             starred = is_starred(msg.flags)
+            if "\\\\Inbox" in glabels:
+                inbox = True
+            else:
+                inbox = False
             message_item = MessageItem(
                 gmessage_id,
                 msg.uid,
@@ -145,6 +150,7 @@ class SearchResultsScreen(ModalScreen):
                 subject,
                 unread=unread,
                 starred=starred,
+                inbox=inbox,
                 glabels=glabels,
             )
             if n % 2 == 0:
