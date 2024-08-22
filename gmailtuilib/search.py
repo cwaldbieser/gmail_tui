@@ -46,7 +46,10 @@ class SearchScreen(ModalScreen):
 
 class SearchResultsScreen(ModalScreen):
 
-    BINDINGS = [("escape", "back", "Back")]
+    BINDINGS = [
+        ("escape", "back", "Back"),
+        ("r", "restore", "Restore message"),
+    ]
     search_fields = None
     search_completed = False
 
@@ -81,6 +84,19 @@ class SearchResultsScreen(ModalScreen):
         wm = app.workers
         wm.cancel_node(self)
         app.pop_screen()
+
+    def action_restore(self):
+        """
+        Restore a message to the inbox.
+        """
+        lv = self.query_one("#search-results")
+        index = lv.index
+        if index is None or index < 0:
+            return
+        li = lv.children[index]
+        mi = li.children[0]
+        uid = mi.uid
+        self.app.restore_to_inbox(uid, from_curr_label=False)
 
     @work(exclusive=True, group="fetch-search-results", thread=True)
     def fetch_search_results(self):

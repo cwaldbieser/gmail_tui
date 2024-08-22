@@ -506,12 +506,31 @@ class GMailApp(App):
     @work(exclusive=True, group="archive-message", thread=True)
     def archive_message(self, uid):
         """
-        Archive a GMail message.
+        Archive a GMail Inbox message.
         """
         access_token = get_oauth2_access_token(self.config)
         with get_mailbox(self.config, access_token) as mailbox:
+            mailbox.folder.set("INBOX")
             uids = [str(uid)]
             mailbox.delete(uids)
+
+    @work(exclusive=True, group="restore-message", thread=True)
+    def restore_to_inbox(self, uid, from_curr_label=False):
+        """
+        Restore a message to the inbox.
+        uid: UID of the message to restore.
+        from_curr_label: If True, copy from the current label.
+            Otherwise, copy from "[Gmail]/All Mail".
+        """
+        if from_curr_label:
+            folder = self.label
+        else:
+            folder = "[Gmail]/All Mail"
+        access_token = get_oauth2_access_token(self.config)
+        with get_mailbox(self.config, access_token) as mailbox:
+            mailbox.folder.set(folder)
+            uids = [str(uid)]
+            mailbox.copy(uids, "INBOX")
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
