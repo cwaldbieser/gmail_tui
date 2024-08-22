@@ -47,8 +47,14 @@ logzero.logger.addHandler(TextualHandler())
 
 
 class Messages(ListView):
+    BINDINGS = [
+        ("a", "archive", "Archive message"),
+    ]
     message_threads = OrderedDict()
     uids_in_view = set([])
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     class Mounted(Message):
         pass
@@ -129,6 +135,20 @@ class Messages(ListView):
         )
         return widget
 
+    def action_archive(self):
+        """
+        Archive a message.
+        """
+        # Get current selection.
+        index = self.index
+        if index is None or index < 0:
+            return
+        li = self.children[index]
+        mi = li.children[0]
+        uid = mi.uid
+        self.app.archive_message(uid)
+        self.remove_items([index])
+
 
 class ButtonBar(Static):
     def compose(self):
@@ -159,7 +179,7 @@ class GMailApp(App):
     }
     CSS_PATH = "gmail_app.tcss"
     BINDINGS = [
-        Binding("d", "toggle_dark", "Toggle dark mode", priority=True, show=True),
+        Binding("ctrl+d", "toggle_dark", "Toggle dark mode", priority=True, show=True),
         ("q", "quit", "Quit"),
         ("c", "compose", "Compose message"),
         ("s", "search", "Search for messages"),
@@ -482,6 +502,16 @@ class GMailApp(App):
                 logger.debug(f"Executing DDL: {sql}")
                 cursor.execute(sql)
             conn.commit()
+
+    @work(exclusive=True, group="archive-message", thread=True)
+    def archive_message(self, uid):
+        """
+        Archive a GMail message.
+        """
+        access_token = get_oauth2_access_token(self.config)
+        with get_mailbox(self.config, access_token) as mailbox:
+            uids = [str(uid)]
+            mailbox.delete(uids)
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
