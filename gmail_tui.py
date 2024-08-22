@@ -49,6 +49,7 @@ logzero.logger.addHandler(TextualHandler())
 class Messages(ListView):
     BINDINGS = [
         ("a", "archive", "Archive message"),
+        ("t", "trash", "Trash message"),
     ]
     message_threads = OrderedDict()
     uids_in_view = set([])
@@ -144,7 +145,6 @@ class Messages(ListView):
         """
         Archive a message.
         """
-        # Get current selection.
         index = self.index
         if index is None or index < 0:
             return
@@ -153,6 +153,27 @@ class Messages(ListView):
         uid = mi.uid
         self.app.archive_message(uid)
         self.remove_items([index])
+        index -= 1
+        if index < 0:
+            index = 0
+        self.index = index
+
+    def action_trash(self):
+        """
+        Trash message.
+        """
+        index = self.index
+        if index is None or index < 0:
+            return
+        li = self.children[index]
+        mi = li.children[0]
+        uid = mi.uid
+        self.app.trash_message(uid, self.app.label)
+        self.remove_items([index])
+        index -= 1
+        if index < 0:
+            index = 0
+        self.index = index
 
 
 class ButtonBar(Static):
@@ -518,6 +539,17 @@ class GMailApp(App):
             mailbox.folder.set("INBOX")
             uids = [str(uid)]
             mailbox.delete(uids)
+
+    @work(exclusive=True, group="trash-message", thread=True)
+    def trash_message(self, uid, label):
+        """
+        Move message to the trash.
+        """
+        access_token = get_oauth2_access_token(self.config)
+        with get_mailbox(self.config, access_token) as mailbox:
+            mailbox.folder.set(label)
+            uids = [str(uid)]
+            mailbox.move(uids, "[Gmail]/Trash")
 
     @work(exclusive=True, group="restore-message", thread=True)
     def restore_to_inbox(self, uid, from_curr_label=False):
