@@ -57,6 +57,7 @@ class Messages(ListView):
     ]
     message_threads = OrderedDict()
     uids_in_view = set([])
+    skip_refresh = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -71,6 +72,10 @@ class Messages(ListView):
         """
         Refresh the list view to match the data.
         """
+        skip_refresh = self.skip_refresh
+        if skip_refresh:
+            self.skip_refresh = False
+            return
         message_threads = self.message_threads
         try:
             loader = self.parent.query_one("#loading")
@@ -155,12 +160,15 @@ class Messages(ListView):
         li = self.children[index]
         mi = li.children[0]
         uid = mi.uid
+        del self.message_threads[uid]
+        logger.debug(f"Preparing to archive INBOX message with UID: {uid} ...")
         self.app.archive_message(uid)
-        self.remove_items([index])
+        self.pop(index)
         index -= 1
-        if index < 0:
-            index = 0
+        if index <= 0:
+            index = 1
         self.index = index
+        self.skip_refresh = True
 
     def action_trash(self):
         """
@@ -172,12 +180,14 @@ class Messages(ListView):
         li = self.children[index]
         mi = li.children[0]
         uid = mi.uid
+        del self.message_threads[uid]
         self.app.trash_message(uid, self.app.label)
         self.remove_items([index])
         index -= 1
-        if index < 0:
-            index = 0
+        if index <= 0:
+            index = 1
         self.index = index
+        self.skip_refresh = True
 
     def action_toggle_unread(self):
         index = self.index
@@ -600,7 +610,8 @@ class GMailApp(App):
         with get_mailbox(self.config, access_token) as mailbox:
             mailbox.folder.set("INBOX")
             uids = [str(uid)]
-            mailbox.delete(uids)
+            result = mailbox.delete(uids)
+            logger.debug(f"Result of mailbox.delete([{uid}]): {result}")
 
     @work(exclusive=True, group="trash-message", thread=True)
     def trash_message(self, uid, label):
