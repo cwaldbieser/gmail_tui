@@ -60,53 +60,43 @@ ButtonBar {
 
 }
 
-.message-label {
-    width: 10%;
-    background: $primary-background-lighten-1;
-    align: center middle;
-}
- .message-value {
-    height: 100%;
-    margin-left: 1;
- }
-
 .message-header-row {
     height: auto;
-    background: $primary-background-lighten-3;
+    margin: 0;
+    padding: 0;
 }
 
-#message-header-area {
-    height: 1fr;
+.message-label {
+    width: 10%;
+    height: auto;
+    text-align: left;
+    border: solid $primary-background-lighten-1;
 }
-#message-header-area:focus {
+ .message-value {
+    height: auto;
+    margin-left: 1;
+    text-align: left;
+    border: solid $primary-background-lighten-1;
+ }
+
+#message-header-area {
+    height: 25%;
     background: $primary-background;
 }
 #message-text-area {
-    height: 4fr;
+    height: 65%;
 }
-#message-text-area:focus {
-    background: $primary-background;
-}
-#msg-text {
-    /*height: 100%;*/
-}
-
 #attachments {
     width: 100%;
-    height: 15%;
-    background: $panel;
+    height: 10%;
+    align: center middle;
+    background: $primary-background-darken-2;
 }
 
 #attachments Button {
-    margin: 2;
+    margin-left: 1;
+    text-align: center;
 }
-
-/*
-#headers-buttonbar {
-    height: 3fr;
-    align: center top;
-}
-*/
 
 .headers-row {
     height: 1fr;

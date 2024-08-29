@@ -1,4 +1,6 @@
 #! /usr/bin/env python
+import csv
+
 import parsley
 
 imap_gmail_uid_fetch_response_grammar = """\
@@ -18,3 +20,13 @@ qstring_chars = anything:c ?(c not in '"') -> c
 imap_gmail_uid_fetch_response_parser = parsley.makeGrammar(
     imap_gmail_uid_fetch_response_grammar, {}
 )
+
+
+def parse_maybe_quoted_csv(s):
+    """
+    Parses a string that represents comma-delimited items.
+    The items may or may not be quoted.
+    """
+    r = csv.reader(iter([s]))
+    items = list(r)[0]
+    return items

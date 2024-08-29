@@ -17,7 +17,7 @@ from textual.widgets import (Button, Footer, Header, Input, Label, Static,
                              TextArea)
 
 from gmailtuilib.oauth2 import get_oauth2_access_token
-from gmailtuilib.smtp import gmail_smtp
+from gmailtuilib.parsers import parse_maybe_quoted_csv
 
 
 class MessageItem(Static):
@@ -270,7 +270,7 @@ class EmailHeadersWidget(Static):
         with Horizontal(classes="message-header-row"):
             yield Label("From:", classes="message-label")
             yield Label(msg.get("From", ""), classes="message-value")
-        recipients = [addr.strip() for addr in msg.get("To", "").split(",")]
+        recipients = parse_maybe_quoted_csv(msg.get("To", ""))
         for recipient in recipients:
             with Horizontal(classes="message-header-row"):
                 yield Label("To:", classes="message-label")
@@ -287,6 +287,7 @@ class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
         ("r", "reply", "Reply to message."),
+        ("ctrl+x", "copy_text", "Copy text to clipboard"),
     ]
 
     msg = reactive(None, init=False, recompose=True)
@@ -297,14 +298,18 @@ class MessageScreen(ModalScreen):
         yield ScrollableContainer(
             EmailHeadersWidget(self.msg), id="message-header-area"
         )
-        yield ScrollableContainer(
-            Static(self.text, id="msg-text"), id="message-text-area"
-        )
+        text_area = TextArea(self.text, id="msg-text", read_only=True)
+        yield ScrollableContainer(text_area, id="message-text-area")
         attachments = get_attachments(self.msg)
         buttons = create_attachment_buttons(attachments)
         if len(buttons) > 0:
             yield HorizontalScroll(*buttons, id="attachments")
         yield Footer()
+
+    def action_copy_text(self):
+        text_area = self.query_one("#msg-text")
+        text = text_area.selected_text
+        self.app.copy_to_clipboard(text)
 
     def watch_msg(self, msg):
         logger.debug("Entered watch_msg().")
