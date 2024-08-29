@@ -639,6 +639,11 @@ class GMailApp(App):
             uids = [str(uid)]
             mailbox.copy(uids, "INBOX")
 
+    @work(exclusive=False, group="smtp-send", thread=True)
+    def send_smtp_message(self, access_token, message_string, recipients, user):
+        with gmail_smtp(user, access_token) as smtp:
+            smtp.sendmail(user, recipients, message_string)
+
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         self.dark = not self.dark
@@ -669,8 +674,7 @@ class GMailApp(App):
             recipients = headers["To"]
             message["To"] = recipients
             message["Subject"] = headers["Subject"]
-            with gmail_smtp(user, access_token) as smtp:
-                smtp.sendmail(user, recipients, message.as_string())
+            self.send_smtp_message(access_token, message.as_string(), recipients, user)
 
         self.push_screen(screen, send_message)
 

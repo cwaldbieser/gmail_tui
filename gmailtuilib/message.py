@@ -136,7 +136,9 @@ class EditableHeadersWidget(Static):
             )
 
     def watch_subject(self, subject):
-        logger.debug(f"Entered editable-header-widget.watch_subject().  subject: {subject}")
+        logger.debug(
+            f"Entered editable-header-widget.watch_subject().  subject: {subject}"
+        )
         try:
             input = self.query_one("#composition-subject")
         except Exception:
@@ -354,8 +356,9 @@ class MessageScreen(ModalScreen):
             recipients = headers["To"]
             message["To"] = recipients
             message["Subject"] = headers["Subject"]
-            with gmail_smtp(user, access_token) as smtp:
-                smtp.sendmail(user, recipients, message.as_string())
+            self.app.send_smtp_message(
+                access_token, message.as_string(), recipients, user
+            )
 
         self.app.push_screen(screen, send_message)
 
