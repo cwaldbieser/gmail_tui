@@ -113,6 +113,9 @@ def transform_labels(labels):
 
 
 class EditableHeadersWidget(Static):
+    subject = reactive("", always_update=True)
+    recipients = reactive("", always_update=True)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -120,22 +123,34 @@ class EditableHeadersWidget(Static):
         with Horizontal(classes="editable-header-row"):
             yield Label("To:", classes="editable-header-label")
             yield Input(
-                value="",
+                value=self.recipients,
                 id="composition-to",
                 classes="editable-header-value",
             )
         with Horizontal(classes="editable-header-row"):
             yield Label("Subject:", classes="editable-header-label")
             yield Input(
-                value="",
+                value=self.subject,
                 id="composition-subject",
                 classes="editable-header-value",
             )
 
-    def reset(self):
-        inputs = self.query_children(Input)
-        for input in inputs:
-            input.value = ""
+    def watch_subject(self, subject):
+        logger.debug(f"Entered editable-header-widget.watch_subject().  subject: {subject}")
+        try:
+            input = self.query_one("#composition-subject")
+        except Exception:
+            logger.debug("Failed to find subject input.")
+            return
+        input.value = subject
+
+    def watch_recipients(self, recipients):
+        try:
+            input = self.query_one("#composition-to")
+        except Exception:
+            logger.debug("Failed to find recipients input.")
+            return
+        input.value = recipients
 
 
 class CompositionScreen(ModalScreen):
@@ -145,33 +160,52 @@ class CompositionScreen(ModalScreen):
         ("ctrl+v", "edit", "Edit message"),
     ]
 
+    text = reactive("", always_update=True)
+    subject = reactive("", always_update=True)
+    recipients = reactive("", always_update=True)
+
     def compose(self):
         yield Header()
+        editable_headers = EditableHeadersWidget(id="composition-headers")
+        editable_headers.subject = self.subject
+        editable_headers.recipients = self.recipients
         yield ScrollableContainer(
-            EditableHeadersWidget(id="composition-headers"),
+            editable_headers,
             id="composition-header-area",
         )
         yield ScrollableContainer(
-            TextArea("", id="composition-text"), id="composition-text-area"
+            TextArea(self.text, id="composition-text"), id="composition-text-area"
         )
         with Horizontal(id="composition-buttonbar"):
             yield Button("OK", id="composition-ok")
             yield Button("Cancel", id="composition-cancel")
         yield Footer()
 
-    def reset(self):
+    def watch_text(self, text):
+        logger.debug(f"Entered watch_text().  text: {text}")
         try:
             textarea = self.query_one("#composition-text")
         except Exception:
-            pass
-        else:
-            textarea.clear()
-        try:
-            headers_widget = self.query_one("composition-headers")
-        except Exception:
+            logger.debug("Failed to find textarea.")
             return
-        headers_widget.recipients = ""
-        headers_widget.subject = ""
+        textarea.text = text
+
+    def watch_subject(self, subject):
+        logger.debug(f"Entered watch_subject().  subject: {subject}")
+        try:
+            headers_widget = self.query_one("#composition-headers")
+        except Exception:
+            logger.debug("Failed to find header widget.")
+            return
+        headers_widget.subject = subject
+
+    def watch_recipients(self, recipients):
+        try:
+            headers_widget = self.query_one("#composition-headers")
+        except Exception:
+            logger.debug("Failed to find header widget.")
+            return
+        headers_widget.recipients = recipients
 
     def on_button_pressed(self, event):
         if event.button.id == "composition-ok":
@@ -292,33 +326,27 @@ class MessageScreen(ModalScreen):
         self.dismiss(True)
 
     def action_reply(self):
-        screen = self.app.SCREENS["headers_screen"]
+        screen = self.app.SCREENS["composition_screen"]
         orig_sender = self.msg["From"]
         orig_subject = self.msg["Subject"]
         if not orig_subject.startswith("Re:"):
             subject = f"Re: {orig_subject}"
         else:
             subject = orig_subject
-        screen.set_fields(subject=subject, recipients=orig_sender)
+        reply_text = "\n".join(f">{line}" for line in self.text.split("\n"))
+        logger.debug("Setting screen.text ...")
+        screen.text = reply_text
+        logger.debug("Setting screen.subject ...")
+        screen.subject = subject
+        logger.debug("Setting screen.recipients ...")
+        screen.recipients = orig_sender
 
-        def compose_message(headers):
-            if headers is None:
+        def send_message(info):
+            if info is None:
                 return
-            EDITOR = os.environ.get("EDITOR", "vim")
-            logger.debug(f"EDITOR is: {EDITOR}")
-            reply_text = "\n".join(f">{line}" for line in self.text.split("\n"))
-            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
-                tfname = tf.name
-                tf.write(reply_text)
-            try:
-                with self.app.suspend():
-                    logzero.loglevel(logzero.CRITICAL)
-                    subprocess.call([EDITOR, tfname])
-                logzero.loglevel(logzero.DEBUG)
-                with open(tfname, "r") as tf:
-                    text = tf.read()
-            finally:
-                os.unlink(tfname)
+            headers, text = info
+            logger.debug(f"HEADERS: {headers}")
+            logger.debug(f"TEXT: {text}")
             access_token = get_oauth2_access_token(self.app.config)
             user = self.app.config["oauth2"]["email"]
             message = MIMEText(text, policy=default_policy)
@@ -329,7 +357,7 @@ class MessageScreen(ModalScreen):
             with gmail_smtp(user, access_token) as smtp:
                 smtp.sendmail(user, recipients, message.as_string())
 
-        self.app.push_screen(screen, compose_message)
+        self.app.push_screen(screen, send_message)
 
 
 def get_text_from_message(msg, content_type="text/plain"):

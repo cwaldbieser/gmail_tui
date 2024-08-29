@@ -651,7 +651,9 @@ class GMailApp(App):
 
     def action_compose(self):
         screen = self.SCREENS["composition_screen"]
-        screen.reset()
+        screen.text = ""
+        screen.subject = ""
+        screen.recipients = ""
         logger.debug("Blanked composition.")
 
         def send_message(info):
