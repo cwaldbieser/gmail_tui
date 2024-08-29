@@ -13,7 +13,8 @@ from textual.containers import (Horizontal, HorizontalScroll,
                                 ScrollableContainer)
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, Label, Static
+from textual.widgets import (Button, Footer, Header, Input, Label, Static,
+                             TextArea)
 
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.smtp import gmail_smtp
@@ -111,39 +112,97 @@ def transform_labels(labels):
     return results
 
 
-class HeadersScreen(ModalScreen):
-
-    BINDINGS = [("escape", "app.pop_screen", "Pop screen")]
+class EditableHeadersWidget(Static):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def compose(self):
-        with Horizontal(classes="headers-row"):
-            yield Label("To:", classes="headers-label")
-            yield Input(value="", id="headers-to")
-        with Horizontal(classes="headers-row"):
-            yield Label("Subject:", classes="headers-label")
-            yield Input(value="", id="headers-subject")
-        with Horizontal(id="headers-buttonbar"):
-            yield Button("OK", id="headers-ok")
-            yield Button("Cancel", id="headers-cancel")
+        with Horizontal(classes="editable-header-row"):
+            yield Label("To:", classes="editable-header-label")
+            yield Input(
+                value="",
+                id="composition-to",
+                classes="editable-header-value",
+            )
+        with Horizontal(classes="editable-header-row"):
+            yield Label("Subject:", classes="editable-header-label")
+            yield Input(
+                value="",
+                id="composition-subject",
+                classes="editable-header-value",
+            )
 
-    def set_fields(self, recipients="", subject=""):
+    def reset(self):
+        inputs = self.query_children(Input)
+        for input in inputs:
+            input.value = ""
+
+
+class CompositionScreen(ModalScreen):
+
+    BINDINGS = [
+        ("escape", "app.pop_screen", "Pop screen"),
+        ("ctrl+v", "edit", "Edit message"),
+    ]
+
+    def compose(self):
+        yield Header()
+        yield ScrollableContainer(
+            EditableHeadersWidget(id="composition-headers"),
+            id="composition-header-area",
+        )
+        yield ScrollableContainer(
+            TextArea("", id="composition-text"), id="composition-text-area"
+        )
+        with Horizontal(id="composition-buttonbar"):
+            yield Button("OK", id="composition-ok")
+            yield Button("Cancel", id="composition-cancel")
+        yield Footer()
+
+    def reset(self):
         try:
-            self.query_one("#headers-to").value = recipients
-            self.query_one("#headers-subject").value = subject
-        except Exception as ex:
-            logger.exception(ex)
+            textarea = self.query_one("#composition-text")
+        except Exception:
+            pass
+        else:
+            textarea.clear()
+        try:
+            headers_widget = self.query_one("composition-headers")
+        except Exception:
+            return
+        headers_widget.recipients = ""
+        headers_widget.subject = ""
 
     def on_button_pressed(self, event):
-        if event.button.id == "headers-ok":
+        if event.button.id == "composition-ok":
             headers = {}
-            to_input = self.query_one("#headers-to")
+            to_input = self.query_one("#composition-to")
             recipients = [recipient.strip() for recipient in to_input.value.split(",")]
             headers["To"] = recipients
-            subject = self.query_one("#headers-subject").value
+            subject = self.query_one("#composition-subject").value
             headers["Subject"] = subject
-            self.dismiss(headers)
+            textarea = self.query_one("#composition-text")
+            text = textarea.text
+            self.dismiss((headers, text))
         else:
             self.dismiss(None)
+
+    def action_edit(self):
+        textarea = self.query_one("#composition-text")
+        EDITOR = os.environ.get("EDITOR", "vim")
+        logger.debug(f"EDITOR is: {EDITOR}")
+        with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
+            tf.write(textarea.text)
+            tfname = tf.name
+        try:
+            with self.app.suspend():
+                logzero.loglevel(logzero.CRITICAL)
+                subprocess.call([EDITOR, tfname])
+            logzero.loglevel(logzero.DEBUG)
+            with open(tfname, "r") as tf:
+                textarea.text = tf.read()
+        finally:
+            os.unlink(tfname)
 
 
 class AttachmentButton(Button):

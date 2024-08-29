@@ -2,13 +2,10 @@
 import os
 import pathlib
 import sqlite3
-import subprocess
-import tempfile
 import tomllib
 from collections import OrderedDict
 from contextlib import contextmanager
 from email.mime.text import MIMEText
-# from email.parser import BytesHeaderParser
 from email.parser import HeaderParser, Parser
 from email.policy import default as default_policy
 
@@ -29,7 +26,7 @@ from textual.widgets import (Button, Footer, Header, ListItem, ListView,
 from gmailtuilib.imap import (compress_uids, fetch_google_messages,
                               get_mailbox, is_starred, is_unread,
                               uid_seq_to_criteria)
-from gmailtuilib.message import HeadersScreen, MessageItem, MessageScreen
+from gmailtuilib.message import CompositionScreen, MessageItem, MessageScreen
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.search import SearchResultsScreen, SearchScreen
 from gmailtuilib.smtp import gmail_smtp
@@ -226,7 +223,7 @@ class GMailApp(App):
 
     SCREENS = {
         "msg_screen": MessageScreen(),
-        "headers_screen": HeadersScreen(),
+        "composition_screen": CompositionScreen(),
         "search_screen": SearchScreen(),
         "search_results_screen": SearchResultsScreen(),
     }
@@ -653,26 +650,16 @@ class GMailApp(App):
         logger.debug("Shutting down ...")
 
     def action_compose(self):
-        screen = self.SCREENS["headers_screen"]
-        screen.set_fields()
-        logger.debug("Blanked headers.")
+        screen = self.SCREENS["composition_screen"]
+        screen.reset()
+        logger.debug("Blanked composition.")
 
-        def compose_message(headers):
-            if headers is None:
+        def send_message(info):
+            if info is None:
                 return
-            EDITOR = os.environ.get("EDITOR", "vim")
-            logger.debug(f"EDITOR is: {EDITOR}")
-            with tempfile.NamedTemporaryFile("r+", suffix=".txt", delete=False) as tf:
-                tfname = tf.name
-            try:
-                with self.suspend():
-                    logzero.loglevel(logzero.CRITICAL)
-                    subprocess.call([EDITOR, tfname])
-                logzero.loglevel(logzero.DEBUG)
-                with open(tfname, "r") as tf:
-                    text = tf.read()
-            finally:
-                os.unlink(tfname)
+            headers, text = info
+            logger.debug(f"HEADERS: {headers}")
+            logger.debug(f"TEXT: {text}")
             access_token = get_oauth2_access_token(self.config)
             user = self.config["oauth2"]["email"]
             message = MIMEText(text, policy=default_policy)
@@ -683,7 +670,7 @@ class GMailApp(App):
             with gmail_smtp(user, access_token) as smtp:
                 smtp.sendmail(user, recipients, message.as_string())
 
-        self.push_screen(screen, compose_message)
+        self.push_screen(screen, send_message)
 
     def action_search(self):
         screen = self.SCREENS["search_screen"]
