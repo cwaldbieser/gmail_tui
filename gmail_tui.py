@@ -26,7 +26,8 @@ from textual.widgets import (Button, Footer, Header, ListItem, ListView,
 from gmailtuilib.imap import (compress_uids, fetch_google_messages,
                               get_mailbox, is_starred, is_unread,
                               uid_seq_to_criteria)
-from gmailtuilib.message import CompositionScreen, MessageItem, MessageScreen
+from gmailtuilib.message import (CompositionScreen, MessageDismissResult,
+                                 MessageItem, MessageScreen)
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.search import SearchResultsScreen, SearchScreen
 from gmailtuilib.smtp import gmail_smtp
@@ -275,11 +276,22 @@ class GMailApp(App):
             # Mark cached message as read
             self.mark_cached_message_read_status(cursor, gmessage_id, read=True)
             conn.commit()
-        # Stop workers
-        for worker in self.workers:
-            if worker.group == "refresh-listview":
-                worker.cancel()
-        self.push_screen(screen)
+
+        def handle_message_exit(result):
+            if result is None:
+                return
+            if result == MessageDismissResult.EXIT:
+                return
+            if result == MessageDismissResult.ARCHIVE:
+                logger.debug("Archiving message ...")
+                self.archive_message(uid)
+                return
+            if result == MessageDismissResult.TRASH:
+                logger.debug("Trashing message ...")
+                self.trash_message(uid, self.label)
+                return
+
+        self.push_screen(screen, handle_message_exit)
 
     def on_mount(self):
         with open(pathlib.Path("~/.gmail_tui/conf.toml").expanduser(), "rb") as f:

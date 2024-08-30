@@ -87,6 +87,9 @@ ButtonBar {
     background: $primary-background-lighten-3;
 }
 #message-text-area {
+    height: 70%;
+}
+#message-text-area.attachments {
     height: 60%;
 }
 #attachments {

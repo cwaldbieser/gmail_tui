@@ -5,6 +5,7 @@ import tempfile
 from email.mime.text import MIMEText
 from email.parser import Parser
 from email.policy import default as default_policy
+from enum import IntEnum
 
 import html2text
 import logzero
@@ -18,6 +19,12 @@ from textual.widgets import (Button, Footer, Header, Input, Label, Static,
 
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.parsers import parse_maybe_quoted_csv
+
+
+class MessageDismissResult(IntEnum):
+    EXIT = 0
+    ARCHIVE = 1
+    TRASH = 2
 
 
 class MessageItem(Static):
@@ -297,8 +304,9 @@ class CopyableTextArea(TextArea):
 class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
-        ("r", "reply", "Reply to message."),
-        # ("ctrl+x", "copy_text", "Copy text to clipboard"),
+        ("r", "reply", "Reply to message"),
+        ("a", "archive", "Archive message"),
+        ("t", "trash", "Trash message"),
     ]
 
     msg = reactive(None, init=False, recompose=True)
@@ -310,17 +318,16 @@ class MessageScreen(ModalScreen):
             EmailHeadersWidget(self.msg), id="message-header-area"
         )
         text_area = CopyableTextArea(self.text, id="msg-text", read_only=True)
-        yield ScrollableContainer(text_area, id="message-text-area")
+        message_text_area = ScrollableContainer(text_area, id="message-text-area")
+        yield message_text_area
         attachments = get_attachments(self.msg)
         buttons = create_attachment_buttons(attachments)
         if len(buttons) > 0:
+            message_text_area.add_class("attachments")
             yield HorizontalScroll(*buttons, id="attachments")
+        else:
+            message_text_area.remove_class("attachments")
         yield Footer()
-
-    # def action_copy_text(self):
-    #     text_area = self.query_one("#msg-text")
-    #     text = text_area.selected_text
-    #     self.app.copy_to_clipboard(text)
 
     def watch_msg(self, msg):
         logger.debug("Entered watch_msg().")
@@ -341,7 +348,13 @@ class MessageScreen(ModalScreen):
         self.text = text
 
     def action_back(self):
-        self.dismiss(True)
+        self.dismiss(MessageDismissResult.EXIT)
+
+    def action_archive(self):
+        self.dismiss(MessageDismissResult.ARCHIVE)
+
+    def action_trash(self):
+        self.dismiss(MessageDismissResult.TRASH)
 
     def action_reply(self):
         screen = self.app.SCREENS["composition_screen"]
