@@ -72,19 +72,28 @@ ButtonBar {
     text-align: left;
     border: solid $primary-background-lighten-1;
 }
- .message-value {
+.message-value {
     height: auto;
     margin-left: 1;
     text-align: left;
     border: solid $primary-background-lighten-1;
- }
+}
 
 #message-header-area {
-    height: 25%;
+    height: 30%;
     background: $primary-background;
 }
+#message-header-area:focus {
+    background: $secondary-background;
+}
+.message-label:focus {
+    border: solid $secondary-background-lighten-1;
+}
+ .message-value:focus {
+    border: solid $secondary-background-lighten-1;
+}
 #message-text-area {
-    height: 65%;
+    height: 60%;
 }
 #attachments {
     width: 100%;

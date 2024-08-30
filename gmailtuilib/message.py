@@ -283,11 +283,22 @@ class EmailHeadersWidget(Static):
             yield Label(msg.get("Subject", ""), classes="message-value")
 
 
+class CopyableTextArea(TextArea):
+    BINDINGS = [("ctrl+x", "copy_text", "Copy text to clipboard")]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def action_copy_text(self):
+        text = self.selected_text
+        self.app.copy_to_clipboard(text)
+
+
 class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
         ("r", "reply", "Reply to message."),
-        ("ctrl+x", "copy_text", "Copy text to clipboard"),
+        # ("ctrl+x", "copy_text", "Copy text to clipboard"),
     ]
 
     msg = reactive(None, init=False, recompose=True)
@@ -298,7 +309,7 @@ class MessageScreen(ModalScreen):
         yield ScrollableContainer(
             EmailHeadersWidget(self.msg), id="message-header-area"
         )
-        text_area = TextArea(self.text, id="msg-text", read_only=True)
+        text_area = CopyableTextArea(self.text, id="msg-text", read_only=True)
         yield ScrollableContainer(text_area, id="message-text-area")
         attachments = get_attachments(self.msg)
         buttons = create_attachment_buttons(attachments)
@@ -306,10 +317,10 @@ class MessageScreen(ModalScreen):
             yield HorizontalScroll(*buttons, id="attachments")
         yield Footer()
 
-    def action_copy_text(self):
-        text_area = self.query_one("#msg-text")
-        text = text_area.selected_text
-        self.app.copy_to_clipboard(text)
+    # def action_copy_text(self):
+    #     text_area = self.query_one("#msg-text")
+    #     text = text_area.selected_text
+    #     self.app.copy_to_clipboard(text)
 
     def watch_msg(self, msg):
         logger.debug("Entered watch_msg().")
