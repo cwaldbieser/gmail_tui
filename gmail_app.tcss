@@ -84,13 +84,7 @@ ButtonBar {
     background: $primary-background;
 }
 #message-header-area:focus {
-    background: $secondary-background;
-}
-.message-label:focus {
-    border: solid $secondary-background-lighten-1;
-}
- .message-value:focus {
-    border: solid $secondary-background-lighten-1;
+    background: $primary-background-lighten-3;
 }
 #message-text-area {
     height: 60%;

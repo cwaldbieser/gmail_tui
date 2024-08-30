@@ -547,7 +547,7 @@ class GMailApp(App):
                 limit=500,
             ):
                 self.insert_or_update_message(
-                    cursor, gmessage_id, gthread_id, glabels, msg
+                    cursor, gmessage_id, gthread_id, glabels, msg, update_only=True
                 )
                 found_uids.add(int(msg.uid))
             # Check for deleted messages.
