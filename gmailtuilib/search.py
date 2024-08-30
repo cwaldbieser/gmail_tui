@@ -8,8 +8,8 @@ from logzero import logger
 from textual import work
 from textual.containers import Horizontal
 from textual.screen import ModalScreen
-from textual.widgets import (Button, Footer, Input, Label, ListItem, ListView,
-                             LoadingIndicator, Switch)
+from textual.widgets import (Button, Footer, Header, Input, Label, ListItem,
+                             ListView, LoadingIndicator, Switch)
 
 from gmailtuilib.imap import (fetch_google_messages, get_mailbox, is_starred,
                               is_unread, quote_imap_string)
@@ -45,6 +45,7 @@ class SearchScreen(ModalScreen):
 
 
 class SearchResultsScreen(ModalScreen):
+    TITLE = "Search Results"
 
     BINDINGS = [
         ("escape", "back", "Back"),
@@ -54,6 +55,8 @@ class SearchResultsScreen(ModalScreen):
     search_completed = False
 
     def compose(self):
+        header = Header(show_clock=True)
+        yield header
         yield ListView(id="search-results")
         yield LoadingIndicator(id="search-loading")
         yield Footer()
@@ -183,6 +186,10 @@ class SearchResultsScreen(ModalScreen):
         Fetch a specific message by UID.
         """
         search_fields = self.search_fields
+        if search_fields["all_mbox"]:
+            label = "[Gmail]/All Mail"
+        else:
+            label = self.app.label
         db_path = self.app.db_path
         logger.debug(f"DB path: {db_path}")
         with sqlite3.connect(db_path) as conn:
@@ -195,10 +202,7 @@ class SearchResultsScreen(ModalScreen):
                 config = self.app.config
                 access_token = get_oauth2_access_token(config)
                 with get_mailbox(config, access_token) as mailbox:
-                    if search_fields["all_mbox"]:
-                        mailbox.folder.set("[Gmail]/All Mail")
-                    else:
-                        mailbox.folder.set(self.app.label)
+                    mailbox.folder.set(label)
                     criteria = A(uid=[uid])
                     for gmessage_id, gthread_id, glabels, msg in fetch_google_messages(
                         mailbox, criteria=criteria, headers_only=False, limit=1

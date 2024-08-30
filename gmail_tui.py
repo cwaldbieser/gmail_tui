@@ -27,7 +27,7 @@ from gmailtuilib.imap import (compress_uids, fetch_google_messages,
                               get_mailbox, is_starred, is_unread,
                               uid_seq_to_criteria)
 from gmailtuilib.message import (CompositionScreen, MessageDismissResult,
-                                 MessageItem, MessageScreen)
+                                 MessageItem, MessageScreen, InboxMessageScreen)
 from gmailtuilib.oauth2 import get_oauth2_access_token
 from gmailtuilib.search import SearchResultsScreen, SearchScreen
 from gmailtuilib.smtp import gmail_smtp
@@ -224,6 +224,7 @@ class GMailApp(App):
 
     SCREENS = {
         "msg_screen": MessageScreen(),
+        "inbox_msg_screen": InboxMessageScreen(),
         "composition_screen": CompositionScreen(),
         "search_screen": SearchScreen(),
         "search_results_screen": SearchResultsScreen(),
@@ -245,7 +246,7 @@ class GMailApp(App):
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
-        yield Header()
+        yield Header(show_clock=True)
         yield MainPanel()
         yield Footer()
 
@@ -268,7 +269,7 @@ class GMailApp(App):
             parser = Parser(policy=default_policy)
             msg = parser.parsestr(message_string)
             # Get plain text from message
-            screen = self.SCREENS["msg_screen"]
+            screen = self.SCREENS["inbox_msg_screen"]
             logger.debug(f"Selected message subject: {msg['subject']}")
             screen.msg = msg
             # Mark remote message as read

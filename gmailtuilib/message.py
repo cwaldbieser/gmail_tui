@@ -305,8 +305,6 @@ class MessageScreen(ModalScreen):
     BINDINGS = [
         ("escape", "back", "Pop screen"),
         ("r", "reply", "Reply to message"),
-        ("a", "archive", "Archive message"),
-        ("t", "trash", "Trash message"),
     ]
 
     msg = reactive(None, init=False, recompose=True)
@@ -350,12 +348,6 @@ class MessageScreen(ModalScreen):
     def action_back(self):
         self.dismiss(MessageDismissResult.EXIT)
 
-    def action_archive(self):
-        self.dismiss(MessageDismissResult.ARCHIVE)
-
-    def action_trash(self):
-        self.dismiss(MessageDismissResult.TRASH)
-
     def action_reply(self):
         screen = self.app.SCREENS["composition_screen"]
         orig_sender = self.msg["From"]
@@ -390,6 +382,22 @@ class MessageScreen(ModalScreen):
             )
 
         self.app.push_screen(screen, send_message)
+
+
+class InboxMessageScreen(MessageScreen):
+    BINDINGS = [
+        ("a", "archive", "Archive message"),
+        ("t", "trash", "Trash message"),
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def action_archive(self):
+        self.dismiss(MessageDismissResult.ARCHIVE)
+
+    def action_trash(self):
+        self.dismiss(MessageDismissResult.TRASH)
 
 
 def get_text_from_message(msg, content_type="text/plain"):
