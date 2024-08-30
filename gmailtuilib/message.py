@@ -328,12 +328,12 @@ class MessageScreen(ModalScreen):
             logger.debug("msg is None.  Exiting function.")
             return
         text = get_text_from_message(msg, "text/plain")
-        if text is None:
+        if text is None or text.strip() == "":
             logger.debug("No message text with content-type text/plain.")
             text = get_text_from_message(msg, "text/html")
-            if text is None:
+            if text is None or text.strip() == "":
                 logger.debug("No message text with content-type text/html.")
-                text = "No text."
+                text = ""
             else:
                 logger.debug("Got HTML text.")
                 text = html2text.html2text(text)
@@ -391,7 +391,11 @@ def get_text_from_message(msg, content_type="text/plain"):
             decode = transfer_encoding is not None
             payload = part.get_payload(decode=decode)
             if isinstance(payload, bytes):
-                payload = payload.decode()
+                charset = part.get_content_charset()
+                if charset is not None:
+                    payload = payload.decode(charset)
+                else:
+                    payload = payload.decode()
             text = payload
             return text
     return None
